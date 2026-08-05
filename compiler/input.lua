@@ -1,16 +1,21 @@
-local Dog = {}
-
-function Dog.new(name)
-  local d = {}
-  d.name = name
-  return d
+local function minmax(a, b)
+  if a < b then
+    return a, b
+  else
+    return b, a
+  end
 end
 
-function Dog:speak()
-  return self.name .. " barks!"
+local function sum(...)
+  local t = {...}
+  local total = 0
+  for i = 1, #t do
+    total = total + t[i]
+  end
+  return total
 end
 
-local rex = Dog.new("Rex")
-local buddy = Dog.new("Buddy")
-print(rex:speak())
-print(buddy:speak())
+local lo, hi = minmax(8, 3)
+print("Low: " .. lo)
+print("High: " .. hi)
+print("Sum: " .. sum(1, 2, 3, 4))

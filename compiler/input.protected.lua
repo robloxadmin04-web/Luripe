@@ -2,90 +2,127 @@
 -- Naka-obfuscate: random opcodes, naitagong strings, junk, control flow, functions,
 -- tables, built-ins, at anti-tamper checksum.
 local OPMAP = {
-  ["PUSH"] = 3,
-  ["ADD"] = 12,
-  ["SUB"] = 7,
-  ["MUL"] = 5,
-  ["PRINT"] = 26,
-  ["JMP"] = 6,
-  ["JZ"] = 16,
-  ["DUP"] = 19,
-  ["HALT"] = 23,
-  ["STORE"] = 28,
-  ["LOAD"] = 10,
-  ["DIV"] = 9,
-  ["PUSHSTR"] = 21,
-  ["POP"] = 17,
-  ["LT"] = 8,
-  ["GT"] = 15,
-  ["LE"] = 29,
-  ["GE"] = 1,
-  ["EQ"] = 14,
-  ["NE"] = 22,
+  ["PUSH"] = 29,
+  ["ADD"] = 32,
+  ["SUB"] = 22,
+  ["MUL"] = 25,
+  ["PRINT"] = 11,
+  ["JMP"] = 33,
+  ["JZ"] = 23,
+  ["DUP"] = 26,
+  ["HALT"] = 7,
+  ["STORE"] = 24,
+  ["LOAD"] = 30,
+  ["DIV"] = 3,
+  ["PUSHSTR"] = 12,
+  ["POP"] = 9,
+  ["LT"] = 27,
+  ["GT"] = 28,
+  ["LE"] = 6,
+  ["GE"] = 18,
+  ["EQ"] = 1,
+  ["NE"] = 21,
   ["CALL"] = 4,
-  ["RETURN"] = 27,
-  ["NEWTABLE"] = 11,
+  ["RETURN"] = 5,
+  ["NEWTABLE"] = 14,
   ["SETTABLE"] = 20,
-  ["GETTABLE"] = 25,
-  ["CONCAT"] = 24,
-  ["BUILTIN"] = 18,
-  ["TLEN"] = 13,
+  ["GETTABLE"] = 15,
+  ["CONCAT"] = 17,
+  ["BUILTIN"] = 19,
+  ["TLEN"] = 31,
   ["MOD"] = 2,
+  ["RETURNN"] = 13,
+  ["STOREMULTI"] = 10,
+  ["VARARG"] = 8,
+  ["NOT"] = 16,
 }
 
 local program = {
-  { 6, 28 },
-  { 3, 25197 },
+  { 33, 57 },
+  { 29, 3088 },
+  { 9 },
+  { 30, 0 },
+  { 30, 1 },
+  { 27 },
+  { 23, 14 },
+  { 29, 2853 },
+  { 9 },
+  { 30, 0 },
+  { 30, 1 },
+  { 13, 2 },
+  { 33, 19 },
+  { 29, 80581 },
+  { 9 },
+  { 30, 1 },
+  { 30, 0 },
+  { 13, 2 },
+  { 29, 0 },
+  { 5 },
+  { 29, 86342 },
+  { 9 },
+  { 8, 0 },
+  { 24, 0 },
+  { 29, 68103 },
+  { 9 },
+  { 29, 0 },
+  { 24, 1 },
+  { 29, 29501 },
+  { 9 },
+  { 29, 1 },
+  { 24, 2 },
+  { 30, 2 },
+  { 30, 0 },
+  { 31 },
+  { 6 },
+  { 23, 51 },
+  { 29, 37683 },
+  { 9 },
+  { 30, 1 },
+  { 30, 0 },
+  { 30, 2 },
+  { 15 },
+  { 32 },
+  { 24, 1 },
+  { 30, 2 },
+  { 29, 1 },
+  { 32 },
+  { 24, 2 },
+  { 33, 33 },
+  { 29, 26674 },
+  { 9 },
+  { 30, 1 },
+  { 5 },
+  { 29, 0 },
+  { 5 },
+  { 29, 43403 },
+  { 9 },
+  { 29, 8 },
+  { 29, 3 },
+  { 4, {2,2} },
+  { 10, {0,1} },
+  { 29, 49578 },
+  { 9 },
+  { 12, {9,44,36,27,125} },
+  { 30, 0 },
   { 17 },
   { 11 },
-  { 28, 1 },
-  { 3, 32802 },
-  { 17 },
-  { 10, 1 },
-  { 21, {47,50,46,54} },
-  { 10, 0 },
-  { 20 },
-  { 3, 3483 },
-  { 17 },
-  { 10, 1 },
-  { 27 },
-  { 3, 0 },
-  { 27 },
-  { 3, 21651 },
-  { 17 },
-  { 10, 0 },
-  { 21, {47,50,46,54} },
-  { 25 },
-  { 21, {125,51,50,35,40,32,114} },
-  { 24 },
-  { 27 },
-  { 3, 0 },
-  { 27 },
-  { 3, 51965 },
+  { 29, 34589 },
+  { 9 },
+  { 12, {21,42,52,53,27,125} },
+  { 30, 1 },
   { 17 },
   { 11 },
-  { 28, 0 },
-  { 3, 95824 },
+  { 29, 42575 },
+  { 9 },
+  { 12, {0,38,46,27,125} },
+  { 29, 1 },
+  { 29, 2 },
+  { 29, 3 },
+  { 29, 4 },
+  { 4, {21,4} },
   { 17 },
-  { 21, {3,54,37} },
-  { 4, {2,1} },
-  { 28, 1 },
-  { 3, 22932 },
-  { 17 },
-  { 21, {19,38,49,49,218} },
-  { 4, {2,1} },
-  { 28, 2 },
-  { 3, 63042 },
-  { 17 },
-  { 10, 1 },
-  { 4, {18,1} },
-  { 26 },
-  { 3, 6104 },
-  { 17 },
-  { 10, 2 },
-  { 4, {18,1} },
-  { 26 },
-  { 23 },
+  { 11 },
+  { 7 },
 }
 --[[
   vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)
@@ -174,6 +211,7 @@ local function run(program, OP, expectedChecksum)
     elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v
     elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])
     elseif op == OP.TLEN then local t = pop(); push(#t)              -- BAGO: #table
+    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)  -- BAGO: not x
 
     elseif op == OP.BUILTIN then
       local id, argc = arg[1], arg[2]
@@ -200,6 +238,34 @@ local function run(program, OP, expectedChecksum)
       ip = caller.retIp
       goto continue
 
+    elseif op == OP.RETURNN then                    -- BAGO: return n values
+      local n = arg
+      local vals = {}
+      for k = n, 1, -1 do vals[k] = pop() end
+      local caller = callStack[csTop]
+      callStack[csTop] = nil
+      csTop = csTop - 1
+      frame = caller.frame
+      for k = 1, n do push(vals[k]) end
+      push(n)                                        -- count sa top
+      ip = caller.retIp
+      goto continue
+
+    elseif op == OP.STOREMULTI then                 -- BAGO: assign n return values sa slots
+      local slots = arg
+      local n = pop()
+      local vals = {}
+      for k = n, 1, -1 do vals[k] = pop() end
+      for k = 1, #slots do frame[slots[k]] = vals[k] end
+
+    elseif op == OP.VARARG then                      -- BAGO: {...} -> table ng lahat ng extra args
+      local startSlot = arg
+      local t = {}
+      local n = 0
+      local k = startSlot
+      while frame[k] ~= nil do n = n + 1; t[n] = frame[k]; k = k + 1 end
+      push(t)
+
     elseif op == OP.HALT then break
     else error("hindi kilalang opcode: " .. tostring(op)) end
 
@@ -210,4 +276,4 @@ end
 
 
 
-run(program, OPMAP, 343448)
+run(program, OPMAP, 579329)

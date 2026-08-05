@@ -55,6 +55,10 @@ const OPS = [
   "BUILTIN",
   "TLEN",
   "MOD",
+  "RETURNN",
+  "STOREMULTI",
+  "VARARG",
+  "NOT",
 ];
 function buildOpcodeMap() {
   const nums = [];
@@ -159,6 +163,15 @@ function compile(source) {
     } else if (node.type === "CallExpression") {
       compileCall(node);
     } else if (node.type === "TableConstructorExpression") {
+      // Espesyal: { ... }  -> kolektahin ang varargs (VARARG opcode) direkta
+      if (
+        node.fields.length === 1 &&
+        node.fields[0].type === "TableValue" &&
+        node.fields[0].value.type === "VarargLiteral"
+      ) {
+        emit(OP.VARARG, varargSlot); // varargSlot = simula ng extra args sa frame
+        return;
+      }
       emit(OP.NEWTABLE);
       let arrayIndex = 1;
       for (const field of node.fields) {
@@ -185,6 +198,22 @@ function compile(source) {
       compileExpr(node.base);
       emit(OP.PUSHSTR, encodeString(node.identifier.name));
       emit(OP.GETTABLE);
+    } else if (node.type === "UnaryExpression") {
+      // -x, not x, #t
+      if (node.operator === "-") {
+        emit(OP.PUSH, 0);
+        compileExpr(node.argument);
+        emit(OP.SUB); // 0 - x
+      } else if (node.operator === "not") {
+        compileExpr(node.argument);
+        emit(OP.NOT);
+      } else if (node.operator === "#") {
+        compileExpr(node.argument);
+        emit(OP.TLEN);
+      } else
+        throw new Error(
+          "hindi sinusuportahan ang unary operator: " + node.operator,
+        );
     } else throw new Error("hindi sinusuportahan ang expression: " + node.type);
   }
 
@@ -277,24 +306,57 @@ function compile(source) {
 
   function compileStatement(node) {
     if (node.type === "LocalStatement") {
-      for (let i = 0; i < node.variables.length; i++) {
-        const name = node.variables[i].name;
-        if (node.init[i]) compileExpr(node.init[i]);
-        else emit(OP.PUSH, 0);
-        emit(OP.STORE, slotFor(name));
+      // Multi-value mula sa isang function call: local a, b = f()  -> STOREMULTI
+      if (
+        node.variables.length > 1 &&
+        node.init.length === 1 &&
+        node.init[0] &&
+        node.init[0].type === "CallExpression"
+      ) {
+        compileCall(node.init[0]); // nag-iiwan ng values + count sa stack
+        const slots = node.variables.map((v) => slotFor(v.name));
+        emit(OP.STOREMULTI, slots);
+      } else {
+        for (let i = 0; i < node.variables.length; i++) {
+          const name = node.variables[i].name;
+          if (node.init[i]) compileExpr(node.init[i]);
+          else emit(OP.PUSH, 0);
+          emit(OP.STORE, slotFor(name));
+        }
       }
     } else if (node.type === "AssignmentStatement") {
-      for (let i = 0; i < node.variables.length; i++)
-        compileAssignTarget(node.variables[i], () => compileExpr(node.init[i]));
+      // Multi-value: a, b = f()
+      if (
+        node.variables.length > 1 &&
+        node.init.length === 1 &&
+        node.init[0] &&
+        node.init[0].type === "CallExpression" &&
+        node.variables.every((v) => v.type === "Identifier")
+      ) {
+        compileCall(node.init[0]);
+        const slots = node.variables.map((v) => slotFor(v.name));
+        emit(OP.STOREMULTI, slots);
+      } else {
+        for (let i = 0; i < node.variables.length; i++)
+          compileAssignTarget(node.variables[i], () =>
+            compileExpr(node.init[i]),
+          );
+      }
     } else if (node.type === "CallStatement") {
       compileCall(node.expression);
       const isPrint =
         node.expression.base && node.expression.base.name === "print";
       if (!isPrint) emit(OP.POP);
     } else if (node.type === "ReturnStatement") {
-      if (node.arguments.length) compileExpr(node.arguments[0]);
-      else emit(OP.PUSH, 0);
-      emit(OP.RETURN);
+      // Multiple return: return a, b, c
+      if (node.arguments.length > 1) {
+        for (const a of node.arguments) compileExpr(a);
+        emit(OP.RETURNN, node.arguments.length);
+      } else {
+        if (node.arguments.length) compileExpr(node.arguments[0]);
+        else emit(OP.PUSH, 0);
+        emit(OP.RETURN);
+      }
     } else if (node.type === "IfStatement") {
       const endJumps = [];
       for (const clause of node.clauses) {
@@ -417,10 +479,18 @@ function compile(source) {
     pushScope();
     // Colon-declared method (Dog:speak) may implicit `self` bilang unang param (slot 0)
     if (fn.__isMethod) slotFor("self");
-    for (const p of fn.parameters) slotFor(p.name);
+    for (const p of fn.parameters) {
+      if (p.type === "VarargLiteral") {
+        // function f(...) — ang extra args ay nagsisimula sa susunod na slot.
+        varargSlot = nextSlot;
+      } else {
+        slotFor(p.name);
+      }
+    }
     compileBlock(fn.body);
     emit(OP.PUSH, 0);
     emit(OP.RETURN);
+    varargSlot = 0; // reset pagkatapos ng function
   }
   patch(skipToMain, here());
   pushScope();

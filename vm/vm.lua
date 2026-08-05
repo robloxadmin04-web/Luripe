@@ -85,6 +85,7 @@ local function run(program, OP, expectedChecksum)
     elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v
     elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])
     elseif op == OP.TLEN then local t = pop(); push(#t)              -- BAGO: #table
+    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)  -- BAGO: not x
 
     elseif op == OP.BUILTIN then
       local id, argc = arg[1], arg[2]
@@ -110,6 +111,34 @@ local function run(program, OP, expectedChecksum)
       push(rv)
       ip = caller.retIp
       goto continue
+
+    elseif op == OP.RETURNN then                    -- BAGO: return n values
+      local n = arg
+      local vals = {}
+      for k = n, 1, -1 do vals[k] = pop() end
+      local caller = callStack[csTop]
+      callStack[csTop] = nil
+      csTop = csTop - 1
+      frame = caller.frame
+      for k = 1, n do push(vals[k]) end
+      push(n)                                        -- count sa top
+      ip = caller.retIp
+      goto continue
+
+    elseif op == OP.STOREMULTI then                 -- BAGO: assign n return values sa slots
+      local slots = arg
+      local n = pop()
+      local vals = {}
+      for k = n, 1, -1 do vals[k] = pop() end
+      for k = 1, #slots do frame[slots[k]] = vals[k] end
+
+    elseif op == OP.VARARG then                      -- BAGO: {...} -> table ng lahat ng extra args
+      local startSlot = arg
+      local t = {}
+      local n = 0
+      local k = startSlot
+      while frame[k] ~= nil do n = n + 1; t[n] = frame[k]; k = k + 1 end
+      push(t)
 
     elseif op == OP.HALT then break
     else error("hindi kilalang opcode: " .. tostring(op)) end
