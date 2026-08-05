@@ -4,147 +4,229 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Luripe — Luau Obfuscator</title>
-    <!-- luaparse mula sa CDN -->
     <script src="https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.min.js"></script>
     <style>
       :root {
-        --bg: #0d1117;
-        --panel: #161b22;
-        --border: #30363d;
-        --accent: #7c3aed;
-        --accent2: #a855f7;
-        --text: #e6edf3;
-        --muted: #8b949e;
-        --ok: #3fb950;
-        --err: #f85149;
+        --bg: #0e0e10;
+        --bg-alt: #161618;
+        --panel: #1a1a1d;
+        --panel-hover: #212125;
+        --border: #2a2a2e;
+        --border-light: #363639;
+        --text: #f4f4f5;
+        --text-dim: #a1a1aa;
+        --text-faint: #71717a;
+        --accent: #e4e4e7;
+        --ok: #4ade80;
+        --err: #f87171;
+        --radius: 10px;
       }
       * {
         box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        height: 100%;
       }
       body {
-        margin: 0;
         font-family:
-          system-ui,
-          -apple-system,
-          Segoe UI,
-          Roboto,
-          sans-serif;
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
         background: var(--bg);
         color: var(--text);
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
       }
+      /* Header */
       header {
-        padding: 20px 28px;
-        border-bottom: 1px solid var(--border);
         display: flex;
         align-items: center;
         gap: 14px;
+        padding: 18px 32px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-alt);
       }
-      header h1 {
-        margin: 0;
-        font-size: 22px;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-      }
-      header .logo {
-        width: 34px;
-        height: 34px;
-        border-radius: 8px;
-        background: linear-gradient(135deg, var(--accent), var(--accent2));
+      .logo {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        background: linear-gradient(145deg, #3f3f46, #18181b);
+        border: 1px solid var(--border-light);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 800;
-        font-size: 18px;
+        flex-shrink: 0;
       }
-      header .tag {
-        color: var(--muted);
+      .logo svg {
+        width: 22px;
+        height: 22px;
+      }
+      .title-group h1 {
+        font-size: 19px;
+        font-weight: 650;
+        letter-spacing: -0.3px;
+      }
+      .title-group p {
         font-size: 13px;
+        color: var(--text-dim);
+        margin-top: 2px;
       }
+      /* Main grid */
       main {
+        flex: 1;
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 16px;
-        padding: 20px 28px;
-        max-width: 1400px;
+        gap: 18px;
+        padding: 24px 32px;
+        max-width: 1500px;
+        width: 100%;
         margin: 0 auto;
-      }
-      @media (max-width: 900px) {
-        main {
-          grid-template-columns: 1fr;
-        }
       }
       .panel {
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 12px;
+        border-radius: var(--radius);
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        min-height: 480px;
+        transition: border-color 0.15s;
       }
-      .panel .head {
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--border);
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--muted);
+      .panel:focus-within {
+        border-color: var(--border-light);
+      }
+      .panel-head {
         display: flex;
-        justify-content: space-between;
         align-items: center;
+        justify-content: space-between;
+        padding: 13px 18px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-alt);
+      }
+      .panel-head .label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: var(--text-dim);
+      }
+      .panel-head .label svg {
+        width: 15px;
+        height: 15px;
+        opacity: 0.7;
       }
       textarea {
+        flex: 1;
         width: 100%;
-        min-height: 420px;
         border: 0;
         background: transparent;
         color: var(--text);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-family:
+          "SF Mono", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
         font-size: 13px;
-        line-height: 1.6;
-        padding: 16px;
-        resize: vertical;
+        line-height: 1.65;
+        padding: 18px;
+        resize: none;
         outline: none;
+        tab-size: 2;
+      }
+      textarea::placeholder {
+        color: var(--text-faint);
       }
       #output {
         white-space: pre;
         overflow: auto;
+        color: var(--text-dim);
       }
-      .bar {
-        padding: 16px 28px;
+      /* Icon button */
+      .icon-btn {
         display: flex;
-        gap: 12px;
         align-items: center;
-        max-width: 1400px;
+        gap: 6px;
+        background: var(--bg);
+        border: 1px solid var(--border-light);
+        color: var(--text-dim);
+        font-size: 12px;
+        font-weight: 500;
+        padding: 6px 12px;
+        border-radius: 7px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .icon-btn:hover {
+        background: var(--panel-hover);
+        color: var(--text);
+        border-color: #52525b;
+      }
+      .icon-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+      /* Action bar */
+      .actionbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 32px 24px;
+        max-width: 1500px;
+        width: 100%;
         margin: 0 auto;
       }
-      button {
+      button.primary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--text);
+        color: var(--bg);
         border: 0;
-        border-radius: 8px;
-        padding: 11px 22px;
         font-size: 14px;
         font-weight: 600;
+        padding: 11px 22px;
+        border-radius: 8px;
         cursor: pointer;
-        transition: 0.15s;
+        transition: all 0.15s;
       }
-      .btn-primary {
-        background: linear-gradient(135deg, var(--accent), var(--accent2));
-        color: #fff;
+      button.primary:hover {
+        background: #d4d4d8;
+        transform: translateY(-1px);
       }
-      .btn-primary:hover {
-        filter: brightness(1.1);
+      button.primary svg {
+        width: 16px;
+        height: 16px;
       }
-      .btn-ghost {
+      button.secondary {
         background: transparent;
-        color: var(--muted);
-        border: 1px solid var(--border);
+        color: var(--text-dim);
+        border: 1px solid var(--border-light);
+        font-size: 14px;
+        font-weight: 500;
+        padding: 11px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.15s;
       }
-      .btn-ghost:hover {
+      button.secondary:hover {
         color: var(--text);
-        border-color: var(--muted);
+        border-color: #52525b;
       }
       #status {
-        font-size: 13px;
-        color: var(--muted);
         margin-left: auto;
+        font-size: 13px;
+        color: var(--text-dim);
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      #status svg {
+        width: 15px;
+        height: 15px;
       }
       #status.ok {
         color: var(--ok);
@@ -152,42 +234,117 @@
       #status.err {
         color: var(--err);
       }
-      .copybtn {
-        font-size: 12px;
-        padding: 4px 12px;
-      }
+      /* Footer */
       footer {
-        text-align: center;
-        color: var(--muted);
-        font-size: 12px;
-        padding: 16px;
+        padding: 18px 32px;
         border-top: 1px solid var(--border);
-        margin-top: 8px;
+        background: var(--bg-alt);
+        font-size: 12px;
+        color: var(--text-faint);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      footer .dot {
+        color: var(--border-light);
       }
       footer a {
-        color: var(--accent2);
+        color: var(--text-dim);
         text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      footer a:hover {
+        color: var(--text);
+      }
+      footer a svg {
+        width: 13px;
+        height: 13px;
+      }
+      /* Responsive */
+      @media (max-width: 860px) {
+        main {
+          grid-template-columns: 1fr;
+          padding: 18px;
+        }
+        header {
+          padding: 16px 18px;
+        }
+        .actionbar {
+          padding: 0 18px 18px;
+          flex-wrap: wrap;
+        }
+        #status {
+          margin-left: 0;
+          width: 100%;
+          order: 3;
+        }
+        .panel {
+          min-height: 320px;
+        }
+      }
+      /* Scrollbar */
+      textarea::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      textarea::-webkit-scrollbar-thumb {
+        background: var(--border-light);
+        border-radius: 5px;
+      }
+      textarea::-webkit-scrollbar-track {
+        background: transparent;
       }
     </style>
   </head>
   <body>
     <header>
-      <div class="logo">L</div>
-      <div>
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M12 2L3 6v6c0 5 3.8 8.5 9 10 5.2-1.5 9-5 9-10V6l-9-4z"
+            stroke="#f4f4f5"
+            stroke-width="1.8"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M9 12l2 2 4-4"
+            stroke="#f4f4f5"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+      <div class="title-group">
         <h1>Luripe</h1>
-        <div class="tag">
-          Luau VM Obfuscator — tumatakbo lahat sa browser mo, walang server
-        </div>
+        <p>Luau VM Obfuscator — runs entirely in your browser, no server</p>
       </div>
     </header>
 
     <main>
       <div class="panel">
-        <div class="head"><span>INPUT — Luau / Lua source</span></div>
+        <div class="panel-head">
+          <span class="label">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M8 6l-4 6 4 6M16 6l4 6-4 6"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            Input — Luau source
+          </span>
+        </div>
         <textarea
           id="input"
           spellcheck="false"
-          placeholder="I-paste ang Luau script dito..."
+          placeholder="Paste your Luau script here..."
         >
 local function greet(name)
   return "Hello, " .. name .. "!"
@@ -204,41 +361,102 @@ end</textarea
       </div>
 
       <div class="panel">
-        <div class="head">
-          <span>OUTPUT — Protected script</span>
-          <button class="btn-ghost copybtn" onclick="copyOut()">
-            Kopyahin
+        <div class="panel-head">
+          <span class="label">
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect
+                x="4"
+                y="4"
+                width="16"
+                height="16"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M8 9h8M8 13h5"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+            Output — Protected script
+          </span>
+          <button class="icon-btn" onclick="copyOut()">
+            <svg viewBox="0 0 24 24" fill="none">
+              <rect
+                x="9"
+                y="9"
+                width="11"
+                height="11"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M5 15V5a2 2 0 012-2h10"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+            </svg>
+            Copy
           </button>
         </div>
         <textarea
           id="output"
           readonly
           spellcheck="false"
-          placeholder="Lalabas dito ang obfuscated output..."
+          placeholder="Obfuscated output will appear here..."
         ></textarea>
       </div>
     </main>
 
-    <div class="bar">
-      <button class="btn-primary" onclick="run()">🔒 Obfuscate</button>
-      <button class="btn-ghost" onclick="clearAll()">Linisin</button>
-      <span id="status">Handa na.</span>
+    <div class="actionbar">
+      <button class="primary" onclick="run()">
+        <svg viewBox="0 0 24 24" fill="none">
+          <rect
+            x="5"
+            y="11"
+            width="14"
+            height="10"
+            rx="2"
+            stroke="currentColor"
+            stroke-width="1.8"
+          />
+          <path
+            d="M8 11V7a4 4 0 018 0v4"
+            stroke="currentColor"
+            stroke-width="1.8"
+          />
+        </svg>
+        Obfuscate
+      </button>
+      <button class="secondary" onclick="clearAll()">Clear</button>
+      <span id="status">Ready.</span>
     </div>
 
     <footer>
-      Luripe — random opcodes bawat build · naitagong strings · junk
-      instructions · anti-tamper ·
-      <a href="https://github.com/robloxadmin04-web/Luripe" target="_blank"
-        >GitHub</a
+      <span>Random opcodes per build</span><span class="dot">&middot;</span>
+      <span>Encrypted strings</span><span class="dot">&middot;</span>
+      <span>Junk instructions</span><span class="dot">&middot;</span>
+      <span>Anti-tamper</span><span class="dot">&middot;</span>
+      <a
+        href="https://github.com/robloxadmin04-web/Luripe"
+        target="_blank"
+        rel="noopener"
       >
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M12 2C6.5 2 2 6.6 2 12.3c0 4.5 2.9 8.3 6.8 9.7.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.4-3.4-1.4-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.3 9.3 0 015 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.3 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10.3 10.3 0 0022 12.3C22 6.6 17.5 2 12 2z"
+          />
+        </svg>
+        GitHub
+      </a>
     </footer>
 
     <script>
-      // ===== Luripe VM source (naka-embed) =====
       const LURIPE_VM_SOURCE =
         '--[[\n  vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)\n  === STEP 11: dinagdagan ng GENERIC FOR support (ipairs/pairs) + TLEN ===\n\n  Bago:\n    - TLEN   : # ng table (bilang ng elements) -> stack\n    - IPAIRS_KEYS : kinukuha ang lahat ng numeric keys ng table (para sa loop)\n    - Ang generic for (for k,v in ipairs/pairs) ay ginagawang loop ng compiler\n      gamit ang TLEN + GETTABLE.\n\n  Gamitin:  VM.run(program, OPMAP, checksum)\n]]\n\nlocal KEY, OFFSET = 0x5A, 7\nlocal function decodeString(encoded)\n  -- Per-string key: ang unang element ay ang key, ang natitira ay ang bytes.\n  local key = encoded[1]\n  local chars = {}\n  for i = 2, #encoded do chars[i-1] = string.char((encoded[i] ~ key) - OFFSET) end\n  return table.concat(chars)\nend\n\nlocal BUILTINS = {\n  [1]  = function(a) return math.floor(a[1]) end,\n  [2]  = function(a) return math.ceil(a[1]) end,\n  [3]  = function(a) return math.abs(a[1]) end,\n  [4]  = function(a) return math.max(a[1], a[2]) end,\n  [5]  = function(a) return math.min(a[1], a[2]) end,\n  [6]  = function(a) return string.upper(a[1]) end,\n  [7]  = function(a) return string.lower(a[1]) end,\n  [8]  = function(a) return #a[1] end,\n  [9]  = function(a) return string.rep(a[1], a[2]) end,\n  [10] = function(a) return tostring(a[1]) end,\n  [11] = function(a) return tonumber(a[1]) end,\n  [12] = function(a) table.insert(a[1], a[2]); return 0 end,\n  -- === BAGO: mas maraming built-ins ===\n  [13] = function(a) return math.sqrt(a[1]) end,\n  [14] = function(a) return math.random(a[1], a[2]) end,\n  [15] = function(a) return a[1] ^ a[2] end,                     -- math.pow\n  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,    -- string.sub\n  [17] = function(a) return string.format(a[1], a[2], a[3], a[4]) end,\n  [18] = function(a) return string.reverse(a[1]) end,\n  [19] = function(a) return string.byte(a[1], a[2]) end,\n  [20] = function(a) return string.char(a[1]) end,\n  [21] = function(a) return table.remove(a[1], a[2]) end,\n  [22] = function(a) return table.concat(a[1], a[2] or "") end,\n  [23] = function(a) return type(a[1]) end,\n  [24] = function(a) return math.sin(a[1]) end,\n  [25] = function(a) return math.cos(a[1]) end,\n}\n\nlocal function checksumOf(program)\n  local sum = 0\n  for i = 1, #program do\n    local inst = program[i]\n    sum = (sum + inst[1] * i) % 1000003\n    if type(inst[2]) == "number" then sum = (sum + inst[2]) % 1000003 end\n  end\n  return sum\nend\n\nlocal function run(program, OP, expectedChecksum)\n  if expectedChecksum ~= nil and checksumOf(program) ~= expectedChecksum then\n    error("Luripe: tampering detected")\n  end\n\n  local stack, sp = {}, 0\n  local function push(v) sp = sp + 1; stack[sp] = v end\n  local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end\n\n  local frame = {}\n  local upvals = {}          -- BAGO: upvalues ng kasalukuyang closure\n  local callStack, csTop = {}, 0\n  local ip = 1\n\n  while ip <= #program do\n    local inst = program[ip]\n    local op, arg = inst[1], inst[2]\n\n    if op == OP.PUSH then push(arg)\n    elseif op == OP.POP then pop()\n    elseif op == OP.ADD then local b = pop(); local a = pop(); push(a + b)\n    elseif op == OP.SUB then local b = pop(); local a = pop(); push(a - b)\n    elseif op == OP.MUL then local b = pop(); local a = pop(); push(a * b)\n    elseif op == OP.DIV then local b = pop(); local a = pop(); push(a / b)\n    elseif op == OP.MOD then local b = pop(); local a = pop(); push(a % b)\n    elseif op == OP.PRINT then print(stack[sp])\n    elseif op == OP.DUP then push(stack[sp])\n    elseif op == OP.STORE then frame[arg] = pop()\n    elseif op == OP.LOAD then push(frame[arg])\n    elseif op == OP.PUSHSTR then push(decodeString(arg))\n    elseif op == OP.CONCAT then local b = pop(); local a = pop(); push(tostring(a) .. tostring(b))\n    elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)\n    elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)\n    elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)\n    elseif op == OP.GE then local b = pop(); local a = pop(); push(a >= b and 1 or 0)\n    elseif op == OP.EQ then local b = pop(); local a = pop(); push(a == b and 1 or 0)\n    elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)\n    elseif op == OP.JMP then ip = arg; goto continue\n    elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end\n    elseif op == OP.NEWTABLE then push({})\n    elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v\n    elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])\n    elseif op == OP.TLEN then local t = pop(); push(#t)              -- BAGO: #table\n    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)  -- BAGO: not x\n\n    elseif op == OP.BUILTIN then\n      local id, argc = arg[1], arg[2]\n      local args = {}\n      for k = argc, 1, -1 do args[k] = pop() end\n      push(BUILTINS[id](args))\n\n    elseif op == OP.CALL then\n      local funcAddr, argc = arg[1], arg[2]\n      local newFrame = {}\n      for k = argc - 1, 0, -1 do newFrame[k] = pop() end\n      csTop = csTop + 1\n      callStack[csTop] = { retIp = ip + 1, frame = frame }\n      frame = newFrame\n      ip = funcAddr\n      goto continue\n    elseif op == OP.RETURN then\n      local rv = pop()\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      push(rv)\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.RETURNN then                    -- return n values\n      local n = arg\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      for k = 1, n do push(vals[k]) end\n      push(n)                                        -- count sa top\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.STOREMULTI then                 -- BAGO: assign n return values sa slots\n      local slots = arg\n      local n = pop()\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      for k = 1, #slots do frame[slots[k]] = vals[k] end\n\n    elseif op == OP.VARARG then                      -- BAGO: {...} -> table ng lahat ng extra args\n      local startSlot = arg\n      local t = {}\n      local n = 0\n      local k = startSlot\n      while frame[k] ~= nil do n = n + 1; t[n] = frame[k]; k = k + 1 end\n      push(t)\n\n    elseif op == OP.HALT then break\n    else error("hindi kilalang opcode: " .. tostring(op)) end\n\n    ip = ip + 1\n    ::continue::\n  end\nend\n\n';
-
-      // ===== Luripe compiler + bundler (naka-embed) =====
       //  luripe.js  —  Luripe AUTO-BUNDLER (FINAL: kompletong feature set)
       //
       //  Kukuha ng input .lua source at magbubuo ng iisang self-contained protected
@@ -1069,50 +1287,53 @@ end</textarea
         );
       }
 
-      // ===== UI logic =====
       function setStatus(msg, cls) {
         const s = document.getElementById("status");
-        s.textContent = msg;
+        const icons = {
+          ok: '<svg viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+          err: '<svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+          "": "",
+        };
+        s.innerHTML = (icons[cls || ""] || "") + "<span>" + msg + "</span>";
         s.className = cls || "";
       }
-
       function run() {
         const src = document.getElementById("input").value;
         const outEl = document.getElementById("output");
         if (!src.trim()) {
-          setStatus("Walang input.", "err");
+          setStatus("No input to obfuscate.", "err");
           return;
         }
         try {
-          setStatus("Kino-obfuscate...");
+          setStatus("Obfuscating...");
           const { OP, bytecode } = compile(src);
           const protectedLua = bundle(OP, bytecode);
           outEl.value = protectedLua;
           setStatus(
-            "✓ Protected! " +
+            "Protected — " +
               bytecode.length +
-              " instructions, random opcodes.",
+              " instructions, randomized opcodes.",
             "ok",
           );
         } catch (e) {
           outEl.value = "";
-          setStatus("✗ " + e.message, "err");
+          setStatus(e.message, "err");
         }
       }
       function copyOut() {
         const o = document.getElementById("output");
         if (!o.value) {
-          setStatus("Walang output na kopyahin.", "err");
+          setStatus("Nothing to copy.", "err");
           return;
         }
         navigator.clipboard
           .writeText(o.value)
-          .then(() => setStatus("✓ Nakopya sa clipboard.", "ok"));
+          .then(() => setStatus("Copied to clipboard.", "ok"));
       }
       function clearAll() {
         document.getElementById("input").value = "";
         document.getElementById("output").value = "";
-        setStatus("Nalinis.");
+        setStatus("Cleared.");
       }
     </script>
   </body>
