@@ -1383,14 +1383,13 @@ end</textarea
           val = document.getElementById("input").value;
           if (!val.trim()) { setStatus("Nothing to copy.", "err"); return; }
         }
-        // Escape for a [[ ]] long string; fall back to quoted if needed.
-        let out;
-        if (!val.includes("]]")) {
-          out = "loadstring([[" + val + "]])()";
-        } else {
-          const esc = val.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
-          out = 'loadstring("' + esc + '")()';
+        // Pick a long-bracket level [==[ ... ]==] that does NOT appear in the
+        // script, so content containing ]] (like UI frameworks) never breaks it.
+        let eq = "";
+        while (val.indexOf("]" + eq + "]") !== -1 || val.indexOf("[" + eq + "[") !== -1) {
+          eq += "=";
         }
+        const out = "loadstring([" + eq + "[\n" + val + "]" + eq + "])()";
         navigator.clipboard.writeText(out).then(
           () => setStatus("Copied loadstring runner - paste into Delta and run.", "ok")
         );
