@@ -87,6 +87,20 @@ const BUILTIN_IDS = {
   tostring: { id: 10, argc: 1 },
   tonumber: { id: 11, argc: 1 },
   "table.insert": { id: 12, argc: 2 },
+  // === BAGO ===
+  "math.sqrt": { id: 13, argc: 1 },
+  "math.random": { id: 14, argc: 2 },
+  "math.pow": { id: 15, argc: 2 },
+  "string.sub": { id: 16, argc: 3 },
+  "string.format": { id: 17, argc: 4 },
+  "string.reverse": { id: 18, argc: 1 },
+  "string.byte": { id: 19, argc: 2 },
+  "string.char": { id: 20, argc: 1 },
+  "table.remove": { id: 21, argc: 2 },
+  "table.concat": { id: 22, argc: 2 },
+  type: { id: 23, argc: 1 },
+  "math.sin": { id: 24, argc: 1 },
+  "math.cos": { id: 25, argc: 1 },
 };
 
 // ================= compiler =================
@@ -441,7 +455,14 @@ function compile(source) {
       compileBlock(node.body);
       emit(OP.JMP, loopTop);
       patch(jz, here());
-    } else throw new Error("hindi sinusuportahan ang statement: " + node.type);
+    } else {
+      // GRACEFUL: sa halip na mag-crash sa unsupported statement, mag-warning
+      // at i-skip ito. Tumatakbo pa rin ang natitirang script.
+      console.warn(
+        "[Luripe] babala: nilaktawan ang hindi sinusuportahang statement: " +
+          node.type,
+      );
+    }
   }
 
   // 2-pass: functions muna, tapos main

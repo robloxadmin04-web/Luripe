@@ -31,6 +31,20 @@ local BUILTINS = {
   [10] = function(a) return tostring(a[1]) end,
   [11] = function(a) return tonumber(a[1]) end,
   [12] = function(a) table.insert(a[1], a[2]); return 0 end,
+  -- === BAGO: mas maraming built-ins ===
+  [13] = function(a) return math.sqrt(a[1]) end,
+  [14] = function(a) return math.random(a[1], a[2]) end,
+  [15] = function(a) return a[1] ^ a[2] end,                     -- math.pow
+  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,    -- string.sub
+  [17] = function(a) return string.format(a[1], a[2], a[3], a[4]) end,
+  [18] = function(a) return string.reverse(a[1]) end,
+  [19] = function(a) return string.byte(a[1], a[2]) end,
+  [20] = function(a) return string.char(a[1]) end,
+  [21] = function(a) return table.remove(a[1], a[2]) end,
+  [22] = function(a) return table.concat(a[1], a[2] or "") end,
+  [23] = function(a) return type(a[1]) end,
+  [24] = function(a) return math.sin(a[1]) end,
+  [25] = function(a) return math.cos(a[1]) end,
 }
 
 local function checksumOf(program)

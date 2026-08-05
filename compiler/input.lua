@@ -1,21 +1,18 @@
-local function minmax(a, b)
-  if a < b then
-    return a, b
-  else
-    return b, a
-  end
-end
-
-local function sum(...)
-  local t = {...}
+local function stats(nums)
   local total = 0
-  for i = 1, #t do
-    total = total + t[i]
+  local biggest = nums[1]
+  for i = 1, #nums do
+    total = total + nums[i]
+    biggest = math.max(biggest, nums[i])
   end
-  return total
+  return total, biggest
 end
 
-local lo, hi = minmax(8, 3)
-print("Low: " .. lo)
-print("High: " .. hi)
-print("Sum: " .. sum(1, 2, 3, 4))
+local data = {}
+table.insert(data, 4)
+table.insert(data, 9)
+table.insert(data, 2)
+
+local sum, max = stats(data)
+print(string.format("Sum=%d Max=%d", sum, max))
+print("Sqrt of sum: " .. math.floor(math.sqrt(sum)))
