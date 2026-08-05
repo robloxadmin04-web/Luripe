@@ -1,10 +1,10 @@
 //  compile.js  —  Luripe compiler
-//  === STEP 9: FOR LOOPS + TABLES ===
+//  === STEP 10: CONCAT + BUILT-INS + ANTI-TAMPER (huling hakbang) ===
 //
 //  Bago:
-//    - for i = start, stop [, step] do ... end   (ginagawang while)
-//    - Tables: {}, {1,2,3}, t[k] = v, t[k] read
-//    - Bagong opcodes: NEWTABLE, SETTABLE, GETTABLE
+//    - String concatenation:  a .. b
+//    - Built-in functions: math.floor, math.max, string.upper, table.insert, atbp.
+//    - Anti-tamper checksum: kino-compute at isinasama sa output.
 //
 //  Patakbuhin:  node compile.js
 //  Kailangan:   npm install luaparse
@@ -48,6 +48,8 @@ const OPS = [
   "NEWTABLE",
   "SETTABLE",
   "GETTABLE",
+  "CONCAT",
+  "BUILTIN",
 ];
 function buildOpcodeMap() {
   const nums = [];
@@ -64,20 +66,45 @@ function buildOpcodeMap() {
 }
 const OP = buildOpcodeMap();
 
+// ===== BUILT-IN mapping: "namespace.name" -> {id, argc} (dapat TUGMA sa vm.lua) =====
+const BUILTIN_IDS = {
+  "math.floor": { id: 1, argc: 1 },
+  "math.ceil": { id: 2, argc: 1 },
+  "math.abs": { id: 3, argc: 1 },
+  "math.max": { id: 4, argc: 2 },
+  "math.min": { id: 5, argc: 2 },
+  "string.upper": { id: 6, argc: 1 },
+  "string.lower": { id: 7, argc: 1 },
+  "string.len": { id: 8, argc: 1 },
+  "string.rep": { id: 9, argc: 2 },
+  tostring: { id: 10, argc: 1 },
+  tonumber: { id: 11, argc: 1 },
+  "table.insert": { id: 12, argc: 2 },
+};
+
 // ====== source ======
 const source = `
-function square(n)
-  return n * n
+function grade(score)
+  if score >= 90 then
+    return "A"
+  elseif score >= 75 then
+    return "B"
+  else
+    return "F"
+  end
 end
 
-local t = {}
-for i = 1, 5 do
-  t[i] = square(i)
+local scores = {}
+table.insert(scores, 95)
+table.insert(scores, 80)
+table.insert(scores, 60)
+
+for i = 1, 3 do
+  local s = scores[i]
+  print("Score " .. s .. " = " .. grade(s))
 end
 
-for i = 1, 5 do
-  print(t[i])
-end
+print("Highest: " .. math.max(scores[1], scores[2]))
 `;
 
 const ast = luaparse.parse(source);
@@ -122,6 +149,15 @@ function emitJunk() {
   emit(OP.POP);
 }
 
+// Kunin ang "math.floor" mula sa MemberExpression base ng isang call
+function builtinName(node) {
+  if (node.type === "MemberExpression" && node.base.type === "Identifier") {
+    return node.base.name + "." + node.identifier.name; // math.floor
+  }
+  if (node.type === "Identifier") return node.name; // tostring
+  return null;
+}
+
 function compileExpr(node) {
   if (node.type === "NumericLiteral") {
     emit(OP.PUSH, node.value);
@@ -142,23 +178,22 @@ function compileExpr(node) {
     else if (o === "-") emit(OP.SUB);
     else if (o === "*") emit(OP.MUL);
     else if (o === "/") emit(OP.DIV);
+    else if (o === "..")
+      emit(OP.CONCAT); // BAGO: concatenation
     else if (CMP[o]) emit(OP[CMP[o]]);
     else throw new Error("hindi sinusuportahan ang operator: " + o);
   } else if (node.type === "CallExpression") {
     compileCall(node);
   } else if (node.type === "TableConstructorExpression") {
-    // BAGO: {} o {1,2,3}
     emit(OP.NEWTABLE);
     let arrayIndex = 1;
     for (const field of node.fields) {
       if (field.type === "TableValue") {
-        // {10, 20, 30} -> t[1]=10, t[2]=20, ...
-        emit(OP.DUP); // kopya ng table
-        emit(OP.PUSH, arrayIndex++); // key
-        compileExpr(field.value); // value
+        emit(OP.DUP);
+        emit(OP.PUSH, arrayIndex++);
+        compileExpr(field.value);
         emit(OP.SETTABLE);
       } else if (field.type === "TableKeyString") {
-        // {x = 5} -> t["x"]=5
         emit(OP.DUP);
         emit(OP.PUSHSTR, encodeString(field.key.name));
         compileExpr(field.value);
@@ -170,12 +205,10 @@ function compileExpr(node) {
       }
     }
   } else if (node.type === "IndexExpression") {
-    // BAGO: t[k]
     compileExpr(node.base);
     compileExpr(node.index);
     emit(OP.GETTABLE);
   } else if (node.type === "MemberExpression") {
-    // BAGO: t.x  (parang t["x"])
     compileExpr(node.base);
     emit(OP.PUSHSTR, encodeString(node.identifier.name));
     emit(OP.GETTABLE);
@@ -185,31 +218,42 @@ function compileExpr(node) {
 }
 
 function compileCall(node) {
-  const fnName = node.base && node.base.name;
-  if (fnName === "print") {
+  // print(...)
+  if (
+    node.base &&
+    node.base.type === "Identifier" &&
+    node.base.name === "print"
+  ) {
     compileExpr(node.arguments[0]);
     emit(OP.PRINT);
     return;
   }
+  // built-in? (math.floor, string.upper, table.insert, tostring...)
+  const bname = builtinName(node.base);
+  if (bname && BUILTIN_IDS[bname]) {
+    const b = BUILTIN_IDS[bname];
+    for (const a of node.arguments) compileExpr(a);
+    emit(OP.BUILTIN, [b.id, node.arguments.length]);
+    return;
+  }
+  // user-defined function
+  const fnName = node.base && node.base.name;
   const fn = functions[fnName];
-  if (!fn) throw new Error("hindi pa naka-declare ang function: " + fnName);
+  if (!fn) throw new Error("hindi kilalang function: " + (fnName || bname));
   for (const a of node.arguments) compileExpr(a);
   emit(OP.CALL, [fn.addr, node.arguments.length]);
 }
 
-// Ini-store ang isang assignment target (variable, t[k], o t.x)
 function compileAssignTarget(target, valueEmitter) {
   if (target.type === "Identifier") {
     valueEmitter();
     emit(OP.STORE, slotFor(target.name));
   } else if (target.type === "IndexExpression") {
-    // t[k] = v
     compileExpr(target.base);
     compileExpr(target.index);
     valueEmitter();
     emit(OP.SETTABLE);
   } else if (target.type === "MemberExpression") {
-    // t.x = v
     compileExpr(target.base);
     emit(OP.PUSHSTR, encodeString(target.identifier.name));
     valueEmitter();
@@ -238,12 +282,16 @@ function compileStatement(node) {
     }
   } else if (node.type === "AssignmentStatement") {
     for (let i = 0; i < node.variables.length; i++) {
-      const target = node.variables[i];
-      const initExpr = node.init[i];
-      compileAssignTarget(target, () => compileExpr(initExpr));
+      compileAssignTarget(node.variables[i], () => compileExpr(node.init[i]));
     }
   } else if (node.type === "CallStatement") {
     compileCall(node.expression);
+    // kung ang call ay nag-iiwan ng return value na hindi ginagamit (hal. table.insert),
+    // tanggalin para malinis ang stack
+    const b = builtinName(node.expression.base);
+    const isPrint =
+      node.expression.base && node.expression.base.name === "print";
+    if (!isPrint) emit(OP.POP);
   } else if (node.type === "ReturnStatement") {
     if (node.arguments.length) compileExpr(node.arguments[0]);
     else emit(OP.PUSH, 0);
@@ -271,20 +319,15 @@ function compileStatement(node) {
     emit(OP.JMP, loopTop);
     patch(jz, here());
   } else if (node.type === "ForNumericStatement") {
-    // BAGO: for i = a, b [, step]
     const varSlot = slotFor(node.variable.name);
-    // i = start
     compileExpr(node.start);
     emit(OP.STORE, varSlot);
-    const stepVal = node.step ? null : 1; // kung walang step, default 1
     const loopTop = here();
-    // condition: i <= stop
     emit(OP.LOAD, varSlot);
     compileExpr(node.end);
     emit(OP.LE);
     const jz = emit(OP.JZ, 0);
     compileBlock(node.body);
-    // i = i + step
     emit(OP.LOAD, varSlot);
     if (node.step) compileExpr(node.step);
     else emit(OP.PUSH, 1);
@@ -297,7 +340,7 @@ function compileStatement(node) {
   }
 }
 
-// ====== 2-pass: functions muna, tapos main ======
+// ====== 2-pass ======
 const funcNodes = [];
 const mainNodes = [];
 for (const stmt of ast.body) {
@@ -322,6 +365,18 @@ pushScope();
 compileBlock(mainNodes);
 emit(OP.HALT);
 
+// ===== anti-tamper checksum (dapat TUGMA sa vm.lua) =====
+function checksumOf(program) {
+  let sum = 0;
+  for (let i = 0; i < program.length; i++) {
+    const inst = program[i];
+    sum = (sum + inst.op * (i + 1)) % 1000003;
+    if (typeof inst.arg === "number") sum = (sum + inst.arg) % 1000003;
+  }
+  return sum;
+}
+const checksum = checksumOf(bytecode);
+
 // ====== output ======
 console.log("Source:", source.trim());
 console.log(
@@ -331,6 +386,7 @@ console.log(
   ),
 );
 console.log("Bilang ng instructions:", bytecode.length);
+console.log("Anti-tamper checksum:", checksum);
 console.log("\nRANDOM opcode map:");
 console.log(JSON.stringify(OP));
 console.log("\nBytecode (bare-number Lua table):");
@@ -340,9 +396,10 @@ const luaLines = bytecode.map((i) => {
   return `  { ${i.op}, ${i.arg} },`;
 });
 console.log("local program = {\n" + luaLines.join("\n") + "\n}");
-console.log("\nOpcode map para sa VM:");
+console.log("\nOpcode map:");
 console.log(
   "local OPMAP = {\n" +
     OPS.map((n) => `  ["${n}"] = ${OP[n]},`).join("\n") +
     "\n}",
 );
+console.log("\n-- run(program, OPMAP, " + checksum + ")");

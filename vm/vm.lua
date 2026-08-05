@@ -1,17 +1,15 @@
 --[[
   vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)
-  === STEP 9: dinagdagan ng TABLES (NEWTABLE / SETTABLE / GETTABLE) ===
+  === STEP 10: CONCAT + BUILT-INS + ANTI-TAMPER (huling hakbang) ===
 
-  Ang `for` loop ay ginagawang `while` ng compiler (desugaring), kaya walang
-  bagong opcode para dito — ginagamit lang ang JMP/JZ/LE na meron na.
+  Bago:
+    - CONCAT  : string concatenation (..)  a .. b
+    - BUILTIN : tumawag ng built-in function via id { BUILTIN, {id, argc} }
+    - Anti-tamper: checksum check bago tumakbo — kung binago ang bytecode,
+      hindi tatakbo (self-protection).
 
-  Bago para sa TABLES:
-    - NEWTABLE : gumawa ng bagong (empty) table -> itulak sa stack
-    - SETTABLE : t[k] = v   (kinukuha ang t, k, v sa stack; walang naiiwan)
-    - GETTABLE : t[k]       (kinukuha ang t, k; itinutulak ang value)
-
-  Ang VM ay tumatanggap ng OPMAP (name -> random number) galing sa compiler.
-  Gamitin:  VM.run(program, OPMAP)
+  Ang VM ay tumatanggap ng OPMAP galing sa compiler.
+  Gamitin:  VM.run(program, OPMAP, checksum)
 ]]
 
 local KEY, OFFSET = 0x5A, 7
@@ -21,7 +19,43 @@ local function decodeString(encoded)
   return table.concat(chars)
 end
 
-local function run(program, OP)
+-- ===== BUILT-IN function registry (id -> aktwal na Lua function) =====
+-- Ang compiler ang nagmamapa ng pangalan (string.format, math.floor...) sa id.
+local BUILTINS = {
+  [1] = { argc = 1, fn = function(a) return math.floor(a[1]) end },        -- math.floor
+  [2] = { argc = 1, fn = function(a) return math.ceil(a[1]) end },         -- math.ceil
+  [3] = { argc = 1, fn = function(a) return math.abs(a[1]) end },          -- math.abs
+  [4] = { argc = 2, fn = function(a) return math.max(a[1], a[2]) end },    -- math.max
+  [5] = { argc = 2, fn = function(a) return math.min(a[1], a[2]) end },    -- math.min
+  [6] = { argc = 1, fn = function(a) return string.upper(a[1]) end },      -- string.upper
+  [7] = { argc = 1, fn = function(a) return string.lower(a[1]) end },      -- string.lower
+  [8] = { argc = 1, fn = function(a) return #a[1] end },                   -- string.len / #
+  [9] = { argc = 2, fn = function(a) return string.rep(a[1], a[2]) end },  -- string.rep
+  [10] = { argc = 1, fn = function(a) return tostring(a[1]) end },         -- tostring
+  [11] = { argc = 1, fn = function(a) return tonumber(a[1]) end },         -- tonumber
+  [12] = { argc = 2, fn = function(a) table.insert(a[1], a[2]); return 0 end }, -- table.insert
+  [13] = { argc = 1, fn = function(a) return #a[1] end },                  -- #table (count)
+}
+
+-- ===== anti-tamper: simpleng checksum ng bytecode =====
+local function checksumOf(program)
+  local sum = 0
+  for i = 1, #program do
+    local inst = program[i]
+    sum = (sum + inst[1] * i) % 1000003   -- opcode * posisyon
+    if type(inst[2]) == "number" then
+      sum = (sum + inst[2]) % 1000003
+    end
+  end
+  return sum
+end
+
+local function run(program, OP, expectedChecksum)
+  -- ANTI-TAMPER: kung binago ang bytecode, tumigil.
+  if expectedChecksum ~= nil and checksumOf(program) ~= expectedChecksum then
+    error("Luripe: tampering detected")
+  end
+
   local stack, sp = {}, 0
   local function push(v) sp = sp + 1; stack[sp] = v end
   local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end
@@ -45,6 +79,7 @@ local function run(program, OP)
     elseif op == OP.STORE then frame[arg] = pop()
     elseif op == OP.LOAD then push(frame[arg])
     elseif op == OP.PUSHSTR then push(decodeString(arg))
+    elseif op == OP.CONCAT then local b = pop(); local a = pop(); push(tostring(a) .. tostring(b))  -- BAGO
     elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)
     elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)
     elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)
@@ -53,12 +88,16 @@ local function run(program, OP)
     elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)
     elseif op == OP.JMP then ip = arg; goto continue
     elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end
+    elseif op == OP.NEWTABLE then push({})
+    elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v
+    elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])
 
-    elseif op == OP.NEWTABLE then push({})                       -- BAGO
-    elseif op == OP.SETTABLE then                                -- BAGO: t[k] = v
-      local v = pop(); local k = pop(); local t = pop(); t[k] = v
-    elseif op == OP.GETTABLE then                                -- BAGO: t[k]
-      local k = pop(); local t = pop(); push(t[k])
+    elseif op == OP.BUILTIN then                        -- BAGO: tumawag ng built-in
+      local id, argc = arg[1], arg[2]
+      local b = BUILTINS[id]
+      local args = {}
+      for k = argc, 1, -1 do args[k] = pop() end
+      push(b.fn(args))
 
     elseif op == OP.CALL then
       local funcAddr, argc = arg[1], arg[2]
@@ -87,4 +126,4 @@ local function run(program, OP)
   end
 end
 
-return { run = run }
+return { run = run, checksumOf = checksumOf }
