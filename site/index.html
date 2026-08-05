@@ -827,8 +827,8 @@ end</textarea>
           "  local " + N.callStack + "," + N.csTop + "={},0\n" +
           "  local " + N.upvals + "=nil\n" +
           "  local " + N.H + "={}\n" +
-          handlerLines.map((l) => "  " + l).join("\n") + "\n" +
           "  local " + N.ctrl + "={" + CF.ip + "=1," + CF.jumped + "=false," + CF.halt + "=false}\n" +
+          handlerLines.map((l) => "  " + l).join("\n") + "\n" +
           "  while " + N.ctrl + "." + CF.ip + "<=#program do\n" +
           "    local " + N.inst + "=program[" + N.ctrl + "." + CF.ip + "]\n" +
           "    local " + N.op + "," + N.arg + "=" + N.inst + "[1]," + N.inst + "[2]\n" +
