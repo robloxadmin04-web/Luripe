@@ -18,10 +18,14 @@ const KEY = 0x5a,
   OFFSET = 7;
 const HARDENING = true; // junk instructions ON
 
-function encodeString(str) {
-  const out = [];
+function encodeString(str, idx) {
+  // Per-string key: bawat string may sariling random key na naka-embed sa unahan
+  // ng encoded array. Format: { key, byte1, byte2, ... }. Walang iisang key
+  // na gagana sa lahat — mas mahirap i-dump.
+  const key = 1 + Math.floor(Math.random() * 254);
+  const out = [key];
   for (let i = 0; i < str.length; i++)
-    out.push((str.charCodeAt(i) + OFFSET) ^ KEY);
+    out.push((str.charCodeAt(i) + OFFSET) ^ key);
   return out;
 }
 
@@ -726,6 +730,32 @@ function scrambleVM(vmMin) {
   return vmMin;
 }
 function luraphBundle(OP, bytecode, vmRaw, checksum) {
+  // Decoy junk generator: gumagawa ng fake na Lua statements na walang epekto,
+  // pero mukhang mahalaga — para mapagulo ang sinumang magbabasa.
+  const rn = () => "_" + Math.random().toString(36).slice(2, 7);
+  function junkLine() {
+    const v = rn(),
+      w = rn(),
+      x = rn();
+    const a = Math.floor(Math.random() * 999),
+      b = Math.floor(Math.random() * 99) + 1;
+    const patterns = [
+      () => `local ${v}=${Math.floor(Math.random() * 99999)};`,
+      () => `local ${v}=function(${w}) return ${w} and ${a} or nil end;`,
+      () => `local ${v}={${a},${b},${Math.floor(Math.random() * 99)}};`,
+      () => `local ${v}=(${a}*${b})%${Math.floor(Math.random() * 97) + 3};`,
+      () => `local function ${v}(${w}) local ${x}=${w} return ${x} end;`,
+      () => `local ${v}="${Math.random().toString(36).slice(2, 10)}";`,
+      // OPAQUE PREDICATES — kondisyon na laging totoo/mali, mukhang dynamic:
+      () => `local ${v}=${a};if (${v}*${v})>=0 then ${v}=${v}+${b} end;`, // laging true
+      () => `local ${v}=${a};if (${v}%1)~=0 then ${v}=nil end;`, // laging false (integer)
+      () => `local ${v}=${b};while ${v}>${a + b} do ${v}=${v}-1 end;`, // hindi tumatakbo
+      () =>
+        `local ${v}=function() if (${a}+${b})>${a} then return ${a} end return ${b} end;`, // dead branch
+    ];
+    return patterns[Math.floor(Math.random() * patterns.length)]();
+  }
+  const junk = (n) => Array.from({ length: n }, junkLine).join("");
   // 1. Flatten program -> number stream (op, tag, [args])
   const nums = [];
   for (const inst of bytecode) {
@@ -755,26 +785,26 @@ function luraphBundle(OP, bytecode, vmRaw, checksum) {
   const vmMin = scrambleVM(minifyLua(vmRaw));
   const opmapNamed = "{" + OPS.map((n) => `${n}=${OP[n]}`).join(",") + "}";
 
-  // 4. Buuin ang isang siksik na bloke.
-  //    Ang mask AT ang string-key ay kino-compute sa runtime mula sa opmap — hindi nakalantad.
+  // 4. Buuin ang isang siksik na bloke — na may junk na nakakalat sa pagitan.
   const KV = r(),
     OV = r();
-  // I-derive: KEY = ((sum*7) % 200) + 30 ... pero kailangang tumugma sa aktwal na 0x5A=90, 7.
-  // Sa halip na i-derive ang 90/7 (na baka mahirap tumama), i-inject sila bilang
-  // computed expressions na hindi mukhang literal: 90 = (opcount*X)+Y style.
-  // Simpleng paraan: itago ang 90 at 7 bilang arithmetic sa isang runtime var.
   const vmKeyed = vmMin.replace(
     /local KEY, OFFSET = 0x5A, 7/,
     `local KEY,OFFSET=${KV},${OV}`,
   );
   return (
     `--[[ Protected by Luripe ]] ` +
+    junk(4) +
     `local ${M}=${opmapNamed};` +
+    junk(3) +
     `local ${SM}=0;for _,v in pairs(${M})do ${SM}=(${SM}+v)%97 end;local ${MK}=(${SM}%64)+1;` +
-    `local ${KV}=(45*2);local ${OV}=(14/2);` + // KEY=90 (0x5A), OFFSET=7 — bilang arithmetic
+    `local ${KV}=(45*2);local ${OV}=(14/2);` +
+    junk(3) +
     `local ${B}="${blob}";` +
+    junk(2) +
     `local function ${D}(s)local r={}for m in s:gmatch("[^,]+")do r[#r+1]=tonumber(m)~${MK} end return r end;` +
     `local ${N}=${D}(${B});` +
+    junk(3) +
     `local ${P}={}local ${I}=1;while ${I}<=#${N} do local o=${N}[${I}];${I}=${I}+1;local t=${N}[${I}];${I}=${I}+1;` +
     `if t==0 then ${P}[#${P}+1]={o} elseif t==1 then ${P}[#${P}+1]={o,${N}[${I}]};${I}=${I}+1 else local l=${N}[${I}];${I}=${I}+1;local a={}for k=1,l do a[k]=${N}[${I}];${I}=${I}+1 end;${P}[#${P}+1]={o,a} end end;` +
     vmKeyed +

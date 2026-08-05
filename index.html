@@ -236,7 +236,7 @@ end</textarea
     <script>
       // ===== Luripe VM source (naka-embed) =====
       const LURIPE_VM_SOURCE =
-        '--[[\n  vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)\n  === STEP 11: dinagdagan ng GENERIC FOR support (ipairs/pairs) + TLEN ===\n\n  Bago:\n    - TLEN   : # ng table (bilang ng elements) -> stack\n    - IPAIRS_KEYS : kinukuha ang lahat ng numeric keys ng table (para sa loop)\n    - Ang generic for (for k,v in ipairs/pairs) ay ginagawang loop ng compiler\n      gamit ang TLEN + GETTABLE.\n\n  Gamitin:  VM.run(program, OPMAP, checksum)\n]]\n\nlocal KEY, OFFSET = 0x5A, 7\nlocal function decodeString(encoded)\n  local chars = {}\n  for i = 1, #encoded do chars[i] = string.char((encoded[i] ~ KEY) - OFFSET) end\n  return table.concat(chars)\nend\n\nlocal BUILTINS = {\n  [1]  = function(a) return math.floor(a[1]) end,\n  [2]  = function(a) return math.ceil(a[1]) end,\n  [3]  = function(a) return math.abs(a[1]) end,\n  [4]  = function(a) return math.max(a[1], a[2]) end,\n  [5]  = function(a) return math.min(a[1], a[2]) end,\n  [6]  = function(a) return string.upper(a[1]) end,\n  [7]  = function(a) return string.lower(a[1]) end,\n  [8]  = function(a) return #a[1] end,\n  [9]  = function(a) return string.rep(a[1], a[2]) end,\n  [10] = function(a) return tostring(a[1]) end,\n  [11] = function(a) return tonumber(a[1]) end,\n  [12] = function(a) table.insert(a[1], a[2]); return 0 end,\n  -- === BAGO: mas maraming built-ins ===\n  [13] = function(a) return math.sqrt(a[1]) end,\n  [14] = function(a) return math.random(a[1], a[2]) end,\n  [15] = function(a) return a[1] ^ a[2] end,                     -- math.pow\n  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,    -- string.sub\n  [17] = function(a) return string.format(a[1], a[2], a[3], a[4]) end,\n  [18] = function(a) return string.reverse(a[1]) end,\n  [19] = function(a) return string.byte(a[1], a[2]) end,\n  [20] = function(a) return string.char(a[1]) end,\n  [21] = function(a) return table.remove(a[1], a[2]) end,\n  [22] = function(a) return table.concat(a[1], a[2] or "") end,\n  [23] = function(a) return type(a[1]) end,\n  [24] = function(a) return math.sin(a[1]) end,\n  [25] = function(a) return math.cos(a[1]) end,\n}\n\nlocal function checksumOf(program)\n  local sum = 0\n  for i = 1, #program do\n    local inst = program[i]\n    sum = (sum + inst[1] * i) % 1000003\n    if type(inst[2]) == "number" then sum = (sum + inst[2]) % 1000003 end\n  end\n  return sum\nend\n\nlocal function run(program, OP, expectedChecksum)\n  if expectedChecksum ~= nil and checksumOf(program) ~= expectedChecksum then\n    error("Luripe: tampering detected")\n  end\n\n  local stack, sp = {}, 0\n  local function push(v) sp = sp + 1; stack[sp] = v end\n  local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end\n\n  local frame = {}\n  local upvals = {}          -- BAGO: upvalues ng kasalukuyang closure\n  local callStack, csTop = {}, 0\n  local ip = 1\n\n  while ip <= #program do\n    local inst = program[ip]\n    local op, arg = inst[1], inst[2]\n\n    if op == OP.PUSH then push(arg)\n    elseif op == OP.POP then pop()\n    elseif op == OP.ADD then local b = pop(); local a = pop(); push(a + b)\n    elseif op == OP.SUB then local b = pop(); local a = pop(); push(a - b)\n    elseif op == OP.MUL then local b = pop(); local a = pop(); push(a * b)\n    elseif op == OP.DIV then local b = pop(); local a = pop(); push(a / b)\n    elseif op == OP.MOD then local b = pop(); local a = pop(); push(a % b)\n    elseif op == OP.PRINT then print(stack[sp])\n    elseif op == OP.DUP then push(stack[sp])\n    elseif op == OP.STORE then frame[arg] = pop()\n    elseif op == OP.LOAD then push(frame[arg])\n    elseif op == OP.PUSHSTR then push(decodeString(arg))\n    elseif op == OP.CONCAT then local b = pop(); local a = pop(); push(tostring(a) .. tostring(b))\n    elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)\n    elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)\n    elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)\n    elseif op == OP.GE then local b = pop(); local a = pop(); push(a >= b and 1 or 0)\n    elseif op == OP.EQ then local b = pop(); local a = pop(); push(a == b and 1 or 0)\n    elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)\n    elseif op == OP.JMP then ip = arg; goto continue\n    elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end\n    elseif op == OP.NEWTABLE then push({})\n    elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v\n    elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])\n    elseif op == OP.TLEN then local t = pop(); push(#t)              -- BAGO: #table\n    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)  -- BAGO: not x\n\n    elseif op == OP.BUILTIN then\n      local id, argc = arg[1], arg[2]\n      local args = {}\n      for k = argc, 1, -1 do args[k] = pop() end\n      push(BUILTINS[id](args))\n\n    elseif op == OP.CALL then\n      local funcAddr, argc = arg[1], arg[2]\n      local newFrame = {}\n      for k = argc - 1, 0, -1 do newFrame[k] = pop() end\n      csTop = csTop + 1\n      callStack[csTop] = { retIp = ip + 1, frame = frame }\n      frame = newFrame\n      ip = funcAddr\n      goto continue\n    elseif op == OP.RETURN then\n      local rv = pop()\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      push(rv)\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.RETURNN then                    -- return n values\n      local n = arg\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      for k = 1, n do push(vals[k]) end\n      push(n)                                        -- count sa top\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.STOREMULTI then                 -- BAGO: assign n return values sa slots\n      local slots = arg\n      local n = pop()\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      for k = 1, #slots do frame[slots[k]] = vals[k] end\n\n    elseif op == OP.VARARG then                      -- BAGO: {...} -> table ng lahat ng extra args\n      local startSlot = arg\n      local t = {}\n      local n = 0\n      local k = startSlot\n      while frame[k] ~= nil do n = n + 1; t[n] = frame[k]; k = k + 1 end\n      push(t)\n\n    elseif op == OP.HALT then break\n    else error("hindi kilalang opcode: " .. tostring(op)) end\n\n    ip = ip + 1\n    ::continue::\n  end\nend\n\n';
+        '--[[\n  vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)\n  === STEP 11: dinagdagan ng GENERIC FOR support (ipairs/pairs) + TLEN ===\n\n  Bago:\n    - TLEN   : # ng table (bilang ng elements) -> stack\n    - IPAIRS_KEYS : kinukuha ang lahat ng numeric keys ng table (para sa loop)\n    - Ang generic for (for k,v in ipairs/pairs) ay ginagawang loop ng compiler\n      gamit ang TLEN + GETTABLE.\n\n  Gamitin:  VM.run(program, OPMAP, checksum)\n]]\n\nlocal KEY, OFFSET = 0x5A, 7\nlocal function decodeString(encoded)\n  -- Per-string key: ang unang element ay ang key, ang natitira ay ang bytes.\n  local key = encoded[1]\n  local chars = {}\n  for i = 2, #encoded do chars[i-1] = string.char((encoded[i] ~ key) - OFFSET) end\n  return table.concat(chars)\nend\n\nlocal BUILTINS = {\n  [1]  = function(a) return math.floor(a[1]) end,\n  [2]  = function(a) return math.ceil(a[1]) end,\n  [3]  = function(a) return math.abs(a[1]) end,\n  [4]  = function(a) return math.max(a[1], a[2]) end,\n  [5]  = function(a) return math.min(a[1], a[2]) end,\n  [6]  = function(a) return string.upper(a[1]) end,\n  [7]  = function(a) return string.lower(a[1]) end,\n  [8]  = function(a) return #a[1] end,\n  [9]  = function(a) return string.rep(a[1], a[2]) end,\n  [10] = function(a) return tostring(a[1]) end,\n  [11] = function(a) return tonumber(a[1]) end,\n  [12] = function(a) table.insert(a[1], a[2]); return 0 end,\n  -- === BAGO: mas maraming built-ins ===\n  [13] = function(a) return math.sqrt(a[1]) end,\n  [14] = function(a) return math.random(a[1], a[2]) end,\n  [15] = function(a) return a[1] ^ a[2] end,                     -- math.pow\n  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,    -- string.sub\n  [17] = function(a) return string.format(a[1], a[2], a[3], a[4]) end,\n  [18] = function(a) return string.reverse(a[1]) end,\n  [19] = function(a) return string.byte(a[1], a[2]) end,\n  [20] = function(a) return string.char(a[1]) end,\n  [21] = function(a) return table.remove(a[1], a[2]) end,\n  [22] = function(a) return table.concat(a[1], a[2] or "") end,\n  [23] = function(a) return type(a[1]) end,\n  [24] = function(a) return math.sin(a[1]) end,\n  [25] = function(a) return math.cos(a[1]) end,\n}\n\nlocal function checksumOf(program)\n  local sum = 0\n  for i = 1, #program do\n    local inst = program[i]\n    sum = (sum + inst[1] * i) % 1000003\n    if type(inst[2]) == "number" then sum = (sum + inst[2]) % 1000003 end\n  end\n  return sum\nend\n\nlocal function run(program, OP, expectedChecksum)\n  if expectedChecksum ~= nil and checksumOf(program) ~= expectedChecksum then\n    error("Luripe: tampering detected")\n  end\n\n  local stack, sp = {}, 0\n  local function push(v) sp = sp + 1; stack[sp] = v end\n  local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end\n\n  local frame = {}\n  local upvals = {}          -- BAGO: upvalues ng kasalukuyang closure\n  local callStack, csTop = {}, 0\n  local ip = 1\n\n  while ip <= #program do\n    local inst = program[ip]\n    local op, arg = inst[1], inst[2]\n\n    if op == OP.PUSH then push(arg)\n    elseif op == OP.POP then pop()\n    elseif op == OP.ADD then local b = pop(); local a = pop(); push(a + b)\n    elseif op == OP.SUB then local b = pop(); local a = pop(); push(a - b)\n    elseif op == OP.MUL then local b = pop(); local a = pop(); push(a * b)\n    elseif op == OP.DIV then local b = pop(); local a = pop(); push(a / b)\n    elseif op == OP.MOD then local b = pop(); local a = pop(); push(a % b)\n    elseif op == OP.PRINT then print(stack[sp])\n    elseif op == OP.DUP then push(stack[sp])\n    elseif op == OP.STORE then frame[arg] = pop()\n    elseif op == OP.LOAD then push(frame[arg])\n    elseif op == OP.PUSHSTR then push(decodeString(arg))\n    elseif op == OP.CONCAT then local b = pop(); local a = pop(); push(tostring(a) .. tostring(b))\n    elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)\n    elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)\n    elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)\n    elseif op == OP.GE then local b = pop(); local a = pop(); push(a >= b and 1 or 0)\n    elseif op == OP.EQ then local b = pop(); local a = pop(); push(a == b and 1 or 0)\n    elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)\n    elseif op == OP.JMP then ip = arg; goto continue\n    elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end\n    elseif op == OP.NEWTABLE then push({})\n    elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v\n    elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])\n    elseif op == OP.TLEN then local t = pop(); push(#t)              -- BAGO: #table\n    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)  -- BAGO: not x\n\n    elseif op == OP.BUILTIN then\n      local id, argc = arg[1], arg[2]\n      local args = {}\n      for k = argc, 1, -1 do args[k] = pop() end\n      push(BUILTINS[id](args))\n\n    elseif op == OP.CALL then\n      local funcAddr, argc = arg[1], arg[2]\n      local newFrame = {}\n      for k = argc - 1, 0, -1 do newFrame[k] = pop() end\n      csTop = csTop + 1\n      callStack[csTop] = { retIp = ip + 1, frame = frame }\n      frame = newFrame\n      ip = funcAddr\n      goto continue\n    elseif op == OP.RETURN then\n      local rv = pop()\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      push(rv)\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.RETURNN then                    -- return n values\n      local n = arg\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      for k = 1, n do push(vals[k]) end\n      push(n)                                        -- count sa top\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.STOREMULTI then                 -- BAGO: assign n return values sa slots\n      local slots = arg\n      local n = pop()\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      for k = 1, #slots do frame[slots[k]] = vals[k] end\n\n    elseif op == OP.VARARG then                      -- BAGO: {...} -> table ng lahat ng extra args\n      local startSlot = arg\n      local t = {}\n      local n = 0\n      local k = startSlot\n      while frame[k] ~= nil do n = n + 1; t[n] = frame[k]; k = k + 1 end\n      push(t)\n\n    elseif op == OP.HALT then break\n    else error("hindi kilalang opcode: " .. tostring(op)) end\n\n    ip = ip + 1\n    ::continue::\n  end\nend\n\n';
 
       // ===== Luripe compiler + bundler (naka-embed) =====
       //  luripe.js  —  Luripe AUTO-BUNDLER (FINAL: kompletong feature set)
@@ -256,10 +256,14 @@ end</textarea
         OFFSET = 7;
       const HARDENING = true; // junk instructions ON
 
-      function encodeString(str) {
-        const out = [];
+      function encodeString(str, idx) {
+        // Per-string key: bawat string may sariling random key na naka-embed sa unahan
+        // ng encoded array. Format: { key, byte1, byte2, ... }. Walang iisang key
+        // na gagana sa lahat — mas mahirap i-dump.
+        const key = 1 + Math.floor(Math.random() * 254);
+        const out = [key];
         for (let i = 0; i < str.length; i++)
-          out.push((str.charCodeAt(i) + OFFSET) ^ KEY);
+          out.push((str.charCodeAt(i) + OFFSET) ^ key);
         return out;
       }
 
@@ -980,6 +984,33 @@ end</textarea
         return vmMin;
       }
       function luraphBundle(OP, bytecode, vmRaw, checksum) {
+        // Decoy junk generator: gumagawa ng fake na Lua statements na walang epekto,
+        // pero mukhang mahalaga — para mapagulo ang sinumang magbabasa.
+        const rn = () => "_" + Math.random().toString(36).slice(2, 7);
+        function junkLine() {
+          const v = rn(),
+            w = rn(),
+            x = rn();
+          const a = Math.floor(Math.random() * 999),
+            b = Math.floor(Math.random() * 99) + 1;
+          const patterns = [
+            () => `local ${v}=${Math.floor(Math.random() * 99999)};`,
+            () => `local ${v}=function(${w}) return ${w} and ${a} or nil end;`,
+            () => `local ${v}={${a},${b},${Math.floor(Math.random() * 99)}};`,
+            () =>
+              `local ${v}=(${a}*${b})%${Math.floor(Math.random() * 97) + 3};`,
+            () => `local function ${v}(${w}) local ${x}=${w} return ${x} end;`,
+            () => `local ${v}="${Math.random().toString(36).slice(2, 10)}";`,
+            // OPAQUE PREDICATES — kondisyon na laging totoo/mali, mukhang dynamic:
+            () => `local ${v}=${a};if (${v}*${v})>=0 then ${v}=${v}+${b} end;`, // laging true
+            () => `local ${v}=${a};if (${v}%1)~=0 then ${v}=nil end;`, // laging false (integer)
+            () => `local ${v}=${b};while ${v}>${a + b} do ${v}=${v}-1 end;`, // hindi tumatakbo
+            () =>
+              `local ${v}=function() if (${a}+${b})>${a} then return ${a} end return ${b} end;`, // dead branch
+          ];
+          return patterns[Math.floor(Math.random() * patterns.length)]();
+        }
+        const junk = (n) => Array.from({ length: n }, junkLine).join("");
         // 1. Flatten program -> number stream (op, tag, [args])
         const nums = [];
         for (const inst of bytecode) {
@@ -1010,26 +1041,26 @@ end</textarea
         const opmapNamed =
           "{" + OPS.map((n) => `${n}=${OP[n]}`).join(",") + "}";
 
-        // 4. Buuin ang isang siksik na bloke.
-        //    Ang mask AT ang string-key ay kino-compute sa runtime mula sa opmap — hindi nakalantad.
+        // 4. Buuin ang isang siksik na bloke — na may junk na nakakalat sa pagitan.
         const KV = r(),
           OV = r();
-        // I-derive: KEY = ((sum*7) % 200) + 30 ... pero kailangang tumugma sa aktwal na 0x5A=90, 7.
-        // Sa halip na i-derive ang 90/7 (na baka mahirap tumama), i-inject sila bilang
-        // computed expressions na hindi mukhang literal: 90 = (opcount*X)+Y style.
-        // Simpleng paraan: itago ang 90 at 7 bilang arithmetic sa isang runtime var.
         const vmKeyed = vmMin.replace(
           /local KEY, OFFSET = 0x5A, 7/,
           `local KEY,OFFSET=${KV},${OV}`,
         );
         return (
           `--[[ Protected by Luripe ]] ` +
+          junk(4) +
           `local ${M}=${opmapNamed};` +
+          junk(3) +
           `local ${SM}=0;for _,v in pairs(${M})do ${SM}=(${SM}+v)%97 end;local ${MK}=(${SM}%64)+1;` +
-          `local ${KV}=(45*2);local ${OV}=(14/2);` + // KEY=90 (0x5A), OFFSET=7 — bilang arithmetic
+          `local ${KV}=(45*2);local ${OV}=(14/2);` +
+          junk(3) +
           `local ${B}="${blob}";` +
+          junk(2) +
           `local function ${D}(s)local r={}for m in s:gmatch("[^,]+")do r[#r+1]=tonumber(m)~${MK} end return r end;` +
           `local ${N}=${D}(${B});` +
+          junk(3) +
           `local ${P}={}local ${I}=1;while ${I}<=#${N} do local o=${N}[${I}];${I}=${I}+1;local t=${N}[${I}];${I}=${I}+1;` +
           `if t==0 then ${P}[#${P}+1]={o} elseif t==1 then ${P}[#${P}+1]={o,${N}[${I}]};${I}=${I}+1 else local l=${N}[${I}];${I}=${I}+1;local a={}for k=1,l do a[k]=${N}[${I}];${I}=${I}+1 end;${P}[#${P}+1]={o,a} end end;` +
           vmKeyed +
