@@ -205,6 +205,42 @@ function compile(source) {
       emit(OP.BUILTIN, [b.id, node.arguments.length]);
       return;
     }
+    // Method call na may colon: d:speak(x)  ->  speak(d, x), self=d
+    // luaparse: node.base = MemberExpression na may indexer ":"
+    if (
+      node.base &&
+      node.base.type === "MemberExpression" &&
+      node.base.indexer === ":"
+    ) {
+      const methodKey = node.base.identifier.name; // "speak"
+      // Hanapin ang function na nagtatapos sa ".speak" (hal. "Dog.speak")
+      let fn = null;
+      for (const qname in functions) {
+        if (qname.endsWith("." + methodKey)) {
+          fn = functions[qname];
+          break;
+        }
+      }
+      if (!fn) throw new Error("hindi kilalang method: " + methodKey);
+      compileExpr(node.base.base); // self (ang object)
+      for (const a of node.arguments) compileExpr(a); // ibang args
+      emit(OP.CALL, [fn.addr, node.arguments.length + 1]); // +1 para sa self
+      return;
+    }
+    // Qualified call: Dog.new(x)  ->  functions["Dog.new"]
+    if (
+      node.base &&
+      node.base.type === "MemberExpression" &&
+      node.base.indexer === "."
+    ) {
+      const qname = node.base.base.name + "." + node.base.identifier.name;
+      const fn = functions[qname];
+      if (!fn) throw new Error("hindi kilalang function: " + qname);
+      for (const a of node.arguments) compileExpr(a);
+      emit(OP.CALL, [fn.addr, node.arguments.length]);
+      return;
+    }
+    // Plain call: foo(x)
     const fnName = node.base && node.base.name;
     const fn = functions[fnName];
     if (!fn) throw new Error("hindi kilalang function: " + (fnName || bname));
@@ -349,23 +385,38 @@ function compile(source) {
   // 2-pass: functions muna, tapos main
   const funcNodes = [],
     mainNodes = [];
-  for (const stmt of ast.body) {
-    // FunctionDeclaration (kasama ang `local function foo()` — may isLocal=true).
-    // Tanggapin lang kung may identifier na pangalan (hindi anonymous).
-    if (
-      stmt.type === "FunctionDeclaration" &&
-      stmt.identifier &&
-      stmt.identifier.name
-    ) {
-      funcNodes.push(stmt);
-    } else {
-      mainNodes.push(stmt);
+  // Helper: kunin ang qualified name mula sa function identifier.
+  //   foo            -> { name:"foo", isMethod:false }
+  //   Dog.new        -> { name:"Dog.new", isMethod:false }
+  //   Dog:speak      -> { name:"Dog.speak", isMethod:true }  (may implicit self)
+  function funcQualifiedName(id) {
+    if (!id) return null;
+    if (id.type === "Identifier") return { name: id.name, isMethod: false };
+    if (id.type === "MemberExpression") {
+      // id.indexer ay "." o ":"
+      const base = id.base.name;
+      const key = id.identifier.name;
+      return { name: base + "." + key, isMethod: id.indexer === ":" };
     }
+    return null;
+  }
+  for (const stmt of ast.body) {
+    const q =
+      stmt.type === "FunctionDeclaration"
+        ? funcQualifiedName(stmt.identifier)
+        : null;
+    if (q) {
+      stmt.__qname = q.name;
+      stmt.__isMethod = q.isMethod;
+      funcNodes.push(stmt);
+    } else mainNodes.push(stmt);
   }
   const skipToMain = emit(OP.JMP, 0);
   for (const fn of funcNodes) {
-    functions[fn.identifier.name] = { addr: here() };
+    functions[fn.__qname] = { addr: here(), isMethod: fn.__isMethod };
     pushScope();
+    // Colon-declared method (Dog:speak) may implicit `self` bilang unang param (slot 0)
+    if (fn.__isMethod) slotFor("self");
     for (const p of fn.parameters) slotFor(p.name);
     compileBlock(fn.body);
     emit(OP.PUSH, 0);
