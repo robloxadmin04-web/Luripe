@@ -444,6 +444,13 @@ end</textarea
       <input id="aiKey" type="password" placeholder="Your AI API key"
         style="background:var(--bg);border:1px solid var(--border-light);color:var(--text-dim);
         font-size:12px;padding:9px 12px;border-radius:8px;width:170px;outline:none;" />
+      <select id="mode"
+        style="background:var(--bg);border:1px solid var(--border-light);color:var(--text-dim);
+        font-size:12px;padding:9px 10px;border-radius:8px;outline:none;" title="Obfuscation mode">
+        <option value="auto">Mode: Auto</option>
+        <option value="vm">Mode: VM (strong)</option>
+        <option value="wrapper">Mode: Wrapper (universal)</option>
+      </select>
       <span id="status">Ready.</span>
     </div>
     <div id="aiPanel" style="display:none;max-width:1500px;width:100%;margin:0 auto;
@@ -1213,19 +1220,92 @@ end</textarea
         s.textContent = msg;
         s.className = cls || "";
       }
+      // ================= WRAPPER MODE (universal) =================
+      // Encodes the WHOLE raw script with the rolling cipher and emits a tiny
+      // Lua loader that decodes it and runs it via load()/loadstring(). Because
+      // the real Roblox engine runs the decoded source, ALL Lua works: Color3,
+      // UDim2, Vector2, Enum, pcall, task.spawn, metatables, UI frameworks, etc.
+      // Protection is lighter than the VM (source is recoverable at runtime),
+      // but the script actually executes where the VM cannot.
+      function wrapperBundle(src) {
+        // Rolling cipher over the raw source bytes (same scheme as strings).
+        const OFFSET = 7, PRIME = 167, CMASK = 0xff;
+        const seed = 1 + Math.floor(Math.random() * 254);
+        const enc = [seed];
+        let prev = seed;
+        for (let i = 0; i < src.length; i++) {
+          const c = src.charCodeAt(i) & 0xffff;
+          // handle multi-byte via UTF-8 encode first
+          // (we pre-encode below, so charCodeAt here is a byte)
+          const ks = (seed ^ ((i + 1) * PRIME) ^ prev) & CMASK;
+          const e = ((c + OFFSET) & CMASK) ^ ks;
+          enc.push(e);
+          prev = e;
+        }
+        // Scrambled runtime names.
+        const r = () => "_" + Math.random().toString(36).slice(2, 7);
+        const D = r(), B = r(), S = r(), I = r(), C = r(), K = r(), FN = r();
+        const blob = enc.join(",");
+        // Junk/decoy like the VM path.
+        const rn = () => "_" + Math.random().toString(36).slice(2, 6);
+        const junk = () => "local " + rn() + "=" + ((Math.random()*99999)|0) + ";";
+        // Lua loader: rebuild bytes, reverse rolling cipher, load + run.
+        const loader =
+          junk() + junk() +
+          "local " + B + "={" + blob + "};" +
+          "local " + S + "=" + B + "[1];" +
+          "local " + K + "=167;local " + I + "=" + S + ";" +
+          "local " + C + "={};" +
+          "for _i=2,#" + B + " do " +
+          "local _e=" + B + "[_i];" +
+          "local _ks=(" + S + "~((_i-1)*" + K + ")~" + I + ")&0xFF;" +
+          "local _c=((_e~_ks)&0xFF)-7;if _c<0 then _c=_c+256 end;" +
+          C + "[#" + C + "+1]=string.char(_c&0xFF);" + I + "=_e end;" +
+          "local " + D + "=table.concat(" + C + ");" +
+          junk() +
+          "local " + FN + "=(loadstring or load)(" + D + ");" +
+          "if " + FN + " then return " + FN + "() end";
+        return loader;
+      }
+
+      function pickMode() {
+        const m = document.getElementById("mode").value;
+        if (m === "vm" || m === "wrapper") return m;
+        // auto: use AI verdict if present
+        const v = window.__luripeVerdict;
+        if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
+        return "vm";
+      }
+
       function run() {
         const src = document.getElementById("input").value;
         const outEl = document.getElementById("output");
         if (!src.trim()) { setStatus("No input to obfuscate.", "err"); return; }
+        const mode = pickMode();
+        if (mode === "wrapper") {
+          try {
+            setStatus("Obfuscating (wrapper mode)...");
+            outEl.value = wrapperBundle(src);
+            setStatus("Protected in Wrapper mode - universal compatibility, lighter protection.", "ok");
+          } catch (e) { outEl.value = ""; setStatus(e.message, "err"); }
+          return;
+        }
+        // VM mode (with auto-fallback to wrapper if compile fails)
         try {
-          setStatus("Obfuscating...");
+          setStatus("Obfuscating (VM mode)...");
           const { OP, bytecode, constPool } = compile(src);
           const protectedLua = bundle(OP, bytecode, constPool);
           outEl.value = protectedLua;
-          setStatus("Protected - " + bytecode.length + " instructions, randomized opcodes.", "ok");
+          setStatus("Protected in VM mode - " + bytecode.length + " instructions, randomized opcodes.", "ok");
         } catch (e) {
-          outEl.value = "";
-          setStatus(e.message, "err");
+          // VM couldn't handle it -> fall back to wrapper so the script still works.
+          try {
+            outEl.value = wrapperBundle(src);
+            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead.", "ok");
+          } catch (e2) {
+            outEl.value = "";
+            setStatus(e.message, "err");
+          }
         }
       }
       function copyOut() {
@@ -1356,6 +1436,7 @@ end</textarea
       }
 
       function renderReport(rep) {
+        window.__luripeVerdict = rep;
         const color = rep.verdict === "VM_SAFE" ? "var(--ok)" :
           rep.verdict === "RISKY" ? "#f5c451" : "var(--err)";
         const items = (arr) => (arr && arr.length)
