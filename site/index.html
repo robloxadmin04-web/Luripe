@@ -868,20 +868,36 @@ end</textarea
             const methodKey = node.base.identifier.name;
             let fn = null;
             for (const qn in functions) { if (qn.endsWith("." + methodKey) || qn === methodKey) { fn = functions[qn]; break; } }
-            if (!fn) throw new Error("hindi kilalang method: " + methodKey);
-            compileExpr(node.base.base);
-            for (const a of node.arguments) compileExpr(a);
-            emit(OP.CALL, [fn.addr, node.arguments.length + 1]);
-            return;
+            if (fn) {
+              compileExpr(node.base.base);
+              for (const a of node.arguments) compileExpr(a);
+              emit(OP.CALL, [fn.addr, node.arguments.length + 1]);
+              return;
+            }
+            if (ROBLOX_PASSTHROUGH) {
+              compileExpr(node.base.base);
+              for (const a of node.arguments) compileExpr(a);
+              emit(OP.SELFCALL, [encodeString(methodKey), node.arguments.length]);
+              return;
+            }
+            throw new Error("hindi kilalang method: " + methodKey);
           }
           // Qualified call: Dog.new(x)
           if (node.base && node.base.type === "MemberExpression" && node.base.indexer === ".") {
             const qn = node.base.base.name + "." + node.base.identifier.name;
             const fn = functions[qn];
-            if (!fn) throw new Error("hindi kilalang function: " + qn);
-            for (const a of node.arguments) compileExpr(a);
-            emit(OP.CALL, [fn.addr, node.arguments.length]);
-            return;
+            if (fn) {
+              for (const a of node.arguments) compileExpr(a);
+              emit(OP.CALL, [fn.addr, node.arguments.length]);
+              return;
+            }
+            if (ROBLOX_PASSTHROUGH) {
+              compileExpr(node.base);
+              for (const a of node.arguments) compileExpr(a);
+              emit(OP.CALLR, node.arguments.length);
+              return;
+            }
+            throw new Error("hindi kilalang function: " + qn);
           }
           const fnName = node.base && node.base.name;
           const fn = functions[fnName];
