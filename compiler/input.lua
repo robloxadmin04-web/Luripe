@@ -1,9 +1,17 @@
--- input.lua  —  sample na programa para i-protect gamit ang Luripe
+-- input.lua  —  sample na programa na may LOGIC (if/while)
 -- Subukan: node luripe.js input.lua
--- Gagawa ng input.protected.lua na handa nang i-run/i-share.
 
-local greeting = "Kamusta Luripe"
-local a = 6
-local b = 7
-print(greeting)
-print(a * b)
+local i = 1
+while i <= 5 do
+  print(i)
+  i = i + 1
+end
+
+local score = 85
+if score >= 90 then
+  print(1)
+elseif score >= 75 then
+  print(2)
+else
+  print(3)
+end

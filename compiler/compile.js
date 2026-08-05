@@ -1,22 +1,19 @@
 //  compile.js  —  Luripe compiler
-//  === STEP 6: HARDENING (junk instructions + opaque predicates) ===
+//  === STEP 7: COMPARISONS + IF / WHILE (control flow) ===
 //
-//  Bago sa Step 6:
-//    - JUNK INSTRUCTIONS: nagsisingit ng walang-kwentang code sa pagitan ng
-//      totoong statements. Net effect sa stack = ZERO (PUSH tapos POP agad),
-//      kaya tama pa rin ang takbo, pero magulo para sa nagbabasa.
-//    - Bagong opcode: POP (tinatanggal ang top ng stack).
-//
-//  I-toggle: baguhin ang HARDENING para makita ang pagkakaiba.
+//  Bago:
+//    - Comparison operators: <, >, <=, >=, ==, ~=
+//    - if ... then ... [else ...] end
+//    - while ... do ... end
+//    Gumagamit ng JMP/JZ + backpatching para sa jump addresses.
 //
 //  Patakbuhin:  node compile.js
 //  Kailangan:   npm install luaparse
 
 const luaparse = require("luaparse");
 
-const HARDENING = true; // <- gawing false para makita ang bytecode na walang junk
+const HARDENING = false; // patayin muna ang junk para malinaw ang jump addresses habang natututo
 
-// ===== string encode config (dapat TUGMA sa VM) =====
 const KEY = 0x5a,
   OFFSET = 7;
 function encodeString(str) {
@@ -26,7 +23,6 @@ function encodeString(str) {
   return out;
 }
 
-// ===== opcode names (dinagdagan ng POP) =====
 const OPS = [
   "PUSH",
   "ADD",
@@ -42,9 +38,13 @@ const OPS = [
   "DIV",
   "PUSHSTR",
   "POP",
+  "LT",
+  "GT",
+  "LE",
+  "GE",
+  "EQ",
+  "NE",
 ];
-
-// ===== random opcode map (iba sa bawat build) =====
 function buildOpcodeMap() {
   const nums = [];
   for (let i = 1; i <= OPS.length; i++) nums.push(i);
@@ -62,21 +62,35 @@ const OP = buildOpcodeMap();
 
 // ====== source ======
 const source = `
-local name = "Luripe"
-local x = 10
-local y = 5
-print("hello world")
-print(name)
-print(x + y * 2)
+local i = 0
+while i < 3 do
+  print(i)
+  i = i + 1
+end
+
+local score = 75
+if score >= 60 then
+  print(1)
+else
+  print(0)
+end
 `;
 
 const ast = luaparse.parse(source);
 
 // ====== compile ======
-let bytecode = [];
+const bytecode = [];
 function emit(op, arg) {
   bytecode.push(arg === undefined ? { op } : { op, arg });
+  return bytecode.length - 1;
 }
+// backpatch: itakda ang arg ng isang instruction sa index na 'to (1-based ip target)
+function patch(index, target) {
+  bytecode[index].arg = target;
+}
+function here() {
+  return bytecode.length + 1;
+} // 1-based ip ng SUSUNOD na instruction
 
 const scope = {};
 let nextSlot = 0;
@@ -85,15 +99,20 @@ function slotFor(name) {
   return scope[name];
 }
 
-// BAGO: gumawa ng junk na WALANG epekto sa stack (push garbage, pop agad)
 function emitJunk() {
   if (!HARDENING) return;
-  const count = 1 + Math.floor(Math.random() * 2); // 1-2 junk pairs
-  for (let i = 0; i < count; i++) {
-    emit(OP.PUSH, Math.floor(Math.random() * 99999));
-    emit(OP.POP);
-  }
+  emit(OP.PUSH, Math.floor(Math.random() * 99999));
+  emit(OP.POP);
 }
+
+const CMP = {
+  "<": "LT",
+  ">": "GT",
+  "<=": "LE",
+  ">=": "GE",
+  "==": "EQ",
+  "~=": "NE",
+};
 
 function compileExpr(node) {
   if (node.type === "NumericLiteral") {
@@ -110,13 +129,23 @@ function compileExpr(node) {
   } else if (node.type === "BinaryExpression") {
     compileExpr(node.left);
     compileExpr(node.right);
-    if (node.operator === "+") emit(OP.ADD);
-    else if (node.operator === "-") emit(OP.SUB);
-    else if (node.operator === "*") emit(OP.MUL);
-    else if (node.operator === "/") emit(OP.DIV);
-    else throw new Error("hindi sinusuportahan ang operator: " + node.operator);
+    const o = node.operator;
+    if (o === "+") emit(OP.ADD);
+    else if (o === "-") emit(OP.SUB);
+    else if (o === "*") emit(OP.MUL);
+    else if (o === "/") emit(OP.DIV);
+    else if (CMP[o])
+      emit(OP[CMP[o]]); // BAGO: comparisons
+    else throw new Error("hindi sinusuportahan ang operator: " + o);
   } else {
     throw new Error("hindi sinusuportahan ang expression: " + node.type);
+  }
+}
+
+function compileBlock(body) {
+  for (const stmt of body) {
+    emitJunk();
+    compileStatement(stmt);
   }
 }
 
@@ -143,28 +172,47 @@ function compileStatement(node) {
     } else {
       throw new Error("hindi sinusuportahan ang function: " + fnName);
     }
+  } else if (node.type === "IfStatement") {
+    // BAGO: if / else
+    // luaparse: node.clauses = [IfClause, (ElseifClause...), (ElseClause)]
+    const endJumps = []; // mga JMP papuntang dulo ng buong if
+    for (const clause of node.clauses) {
+      if (clause.type === "ElseClause") {
+        compileBlock(clause.body);
+      } else {
+        // IfClause / ElseifClause: may condition
+        compileExpr(clause.condition);
+        const jz = emit(OP.JZ, 0); // kung false, laktawan ang body na 'to
+        compileBlock(clause.body);
+        endJumps.push(emit(OP.JMP, 0)); // pagkatapos ng body, tumalon sa dulo
+        patch(jz, here()); // ang JZ ay papunta dito (susunod na clause)
+      }
+    }
+    const endIf = here();
+    for (const j of endJumps) patch(j, endIf); // lahat ng end-jump -> dulo
+  } else if (node.type === "WhileStatement") {
+    // BAGO: while
+    const loopTop = here(); // simula ng condition
+    compileExpr(node.condition);
+    const jz = emit(OP.JZ, 0); // kung false, labas
+    compileBlock(node.body);
+    emit(OP.JMP, loopTop); // balik sa condition
+    patch(jz, here()); // JZ -> pagkatapos ng loop
   } else {
     throw new Error("hindi sinusuportahan ang statement: " + node.type);
   }
 }
 
-// BAGO: magsingit ng junk sa pagitan ng bawat statement
-for (const stmt of ast.body) {
-  emitJunk();
-  compileStatement(stmt);
-}
-emitJunk();
+compileBlock(ast.body);
 emit(OP.HALT);
 
 // ====== output ======
 console.log("Source:", source.trim());
-console.log("\nHardening:", HARDENING ? "ON (may junk)" : "OFF");
+console.log("\nHardening:", HARDENING ? "ON" : "OFF");
 console.log("Bilang ng instructions:", bytecode.length);
 console.log("\nRANDOM opcode map:");
 console.log(JSON.stringify(OP));
-console.log(
-  "\nBytecode (bare-number Lua table) — may junk, random opcodes, naitagong strings:",
-);
+console.log("\nBytecode (bare-number Lua table):");
 const luaLines = bytecode.map((i) => {
   if (i.arg === undefined) return `  { ${i.op} },`;
   if (Array.isArray(i.arg)) return `  { ${i.op}, {${i.arg.join(",")}} },`;

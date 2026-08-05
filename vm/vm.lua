@@ -1,9 +1,12 @@
 --[[
   vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)
-  === STEP 6: dinagdagan ng POP (para sa junk instructions) ===
+  === STEP 7: dinagdagan ng COMPARISONS + CONTROL FLOW ===
+
+  Bago:
+    - LT / GT / LE / GE / EQ / NE : comparisons -> nagtutulak ng 1 (true) o 0 (false)
+    - Ginagamit ng if/while ang JZ (jump if zero) at JMP na nasa VM na mula pa Step 1.
 
   Ang VM ay tumatanggap ng OPMAP (name -> random number) galing sa compiler.
-  Bagong opcode: POP — tinatanggal ang top ng stack (kailangan ng junk code).
 
   Gamitin:  local VM = require("vm")
             VM.run(program, OPMAP)
@@ -26,7 +29,7 @@ local function run(program, OP)
     local op, arg = inst[1], inst[2]
 
     if op == OP.PUSH then push(arg)
-    elseif op == OP.POP then pop()                       -- BAGO: para sa junk
+    elseif op == OP.POP then pop()
     elseif op == OP.ADD then local b = pop(); local a = pop(); push(a + b)
     elseif op == OP.SUB then local b = pop(); local a = pop(); push(a - b)
     elseif op == OP.MUL then local b = pop(); local a = pop(); push(a * b)
@@ -36,6 +39,14 @@ local function run(program, OP)
     elseif op == OP.STORE then locals[arg] = pop()
     elseif op == OP.LOAD then push(locals[arg])
     elseif op == OP.PUSHSTR then push(decodeString(arg))
+    -- BAGO: comparisons (1 = true, 0 = false)
+    elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)
+    elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)
+    elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)
+    elseif op == OP.GE then local b = pop(); local a = pop(); push(a >= b and 1 or 0)
+    elseif op == OP.EQ then local b = pop(); local a = pop(); push(a == b and 1 or 0)
+    elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)
+    -- control flow (nasa VM na mula pa dati)
     elseif op == OP.JMP then ip = arg; goto continue
     elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end
     elseif op == OP.HALT then break

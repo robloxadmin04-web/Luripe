@@ -1,26 +1,24 @@
-//  luripe.js  —  Luripe AUTO-BUNDLER (ang "totoong" tool)
+//  luripe.js  —  Luripe AUTO-BUNDLER (STEP 7: control flow support)
 //
-//  Kukuha ng input .lua source, ico-compile, tapos MAGBUBUO ng iisang
-//  self-contained protected .lua file na naglalaman ng:
+//  Kukuha ng input .lua source, ico-compile (kasama na ang if/while + comparisons),
+//  tapos MAGBUBUO ng iisang self-contained protected .lua file:
 //    - naitagong bytecode (random opcodes, encoded strings, junk)
-//    - ang OPMAP (susi para maintindihan ng VM)
+//    - ang OPMAP (susi ng VM)
 //    - ang buong VM interpreter
-//  Isang file na lang, handa nang i-share/i-run — tulad ng Luraph.
 //
 //  Gamitin:
-//    node luripe.js input.lua              -> gagawa ng input.protected.lua
+//    node luripe.js input.lua              -> input.protected.lua
 //    node luripe.js input.lua out.lua      -> custom output name
 //
 //  Kailangan:  npm install luaparse
 
 const fs = require("fs");
-const path = require("path");
 const luaparse = require("luaparse");
 
 // ================= config =================
 const KEY = 0x5a,
   OFFSET = 7;
-const HARDENING = true;
+const HARDENING = true; // junk instructions ON (dynamic ang jump addresses kaya ligtas)
 
 // ================= string encode =================
 function encodeString(str) {
@@ -46,6 +44,12 @@ const OPS = [
   "DIV",
   "PUSHSTR",
   "POP",
+  "LT",
+  "GT",
+  "LE",
+  "GE",
+  "EQ",
+  "NE",
 ];
 function buildOpcodeMap() {
   const nums = [];
@@ -66,8 +70,14 @@ function compile(source) {
   const OP = buildOpcodeMap();
   const ast = luaparse.parse(source);
   const bytecode = [];
-  const emit = (op, arg) =>
+  const emit = (op, arg) => {
     bytecode.push(arg === undefined ? { op } : { op, arg });
+    return bytecode.length - 1;
+  };
+  const patch = (index, target) => {
+    bytecode[index].arg = target;
+  };
+  const here = () => bytecode.length + 1; // 1-based ip ng susunod na instruction
 
   const scope = {};
   let nextSlot = 0;
@@ -78,12 +88,18 @@ function compile(source) {
 
   function emitJunk() {
     if (!HARDENING) return;
-    const count = 1 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < count; i++) {
-      emit(OP.PUSH, Math.floor(Math.random() * 99999));
-      emit(OP.POP);
-    }
+    emit(OP.PUSH, Math.floor(Math.random() * 99999));
+    emit(OP.POP);
   }
+
+  const CMP = {
+    "<": "LT",
+    ">": "GT",
+    "<=": "LE",
+    ">=": "GE",
+    "==": "EQ",
+    "~=": "NE",
+  };
 
   function compileExpr(node) {
     if (node.type === "NumericLiteral") {
@@ -100,14 +116,22 @@ function compile(source) {
     } else if (node.type === "BinaryExpression") {
       compileExpr(node.left);
       compileExpr(node.right);
-      if (node.operator === "+") emit(OP.ADD);
-      else if (node.operator === "-") emit(OP.SUB);
-      else if (node.operator === "*") emit(OP.MUL);
-      else if (node.operator === "/") emit(OP.DIV);
-      else
-        throw new Error("hindi sinusuportahan ang operator: " + node.operator);
+      const o = node.operator;
+      if (o === "+") emit(OP.ADD);
+      else if (o === "-") emit(OP.SUB);
+      else if (o === "*") emit(OP.MUL);
+      else if (o === "/") emit(OP.DIV);
+      else if (CMP[o]) emit(OP[CMP[o]]);
+      else throw new Error("hindi sinusuportahan ang operator: " + o);
     } else {
       throw new Error("hindi sinusuportahan ang expression: " + node.type);
+    }
+  }
+
+  function compileBlock(body) {
+    for (const stmt of body) {
+      emitJunk();
+      compileStatement(stmt);
     }
   }
 
@@ -134,23 +158,39 @@ function compile(source) {
       } else {
         throw new Error("hindi sinusuportahan ang function: " + fnName);
       }
+    } else if (node.type === "IfStatement") {
+      const endJumps = [];
+      for (const clause of node.clauses) {
+        if (clause.type === "ElseClause") {
+          compileBlock(clause.body);
+        } else {
+          compileExpr(clause.condition);
+          const jz = emit(OP.JZ, 0);
+          compileBlock(clause.body);
+          endJumps.push(emit(OP.JMP, 0));
+          patch(jz, here());
+        }
+      }
+      const endIf = here();
+      for (const j of endJumps) patch(j, endIf);
+    } else if (node.type === "WhileStatement") {
+      const loopTop = here();
+      compileExpr(node.condition);
+      const jz = emit(OP.JZ, 0);
+      compileBlock(node.body);
+      emit(OP.JMP, loopTop);
+      patch(jz, here());
     } else {
       throw new Error("hindi sinusuportahan ang statement: " + node.type);
     }
   }
 
-  for (const stmt of ast.body) {
-    emitJunk();
-    compileStatement(stmt);
-  }
-  emitJunk();
+  compileBlock(ast.body);
   emit(OP.HALT);
-
   return { OP, bytecode };
 }
 
 // ================= bundler =================
-// Gagawa ng iisang Lua file: OPMAP + program + VM + tawag.
 function bundle(OP, bytecode) {
   const opmapLua =
     "local OPMAP = {\n" +
@@ -168,7 +208,6 @@ function bundle(OP, bytecode) {
       .join("\n") +
     "\n}";
 
-  // Ang VM (naka-embed) — gumagamit ng OPMAP, hindi hardcoded na numbers.
   const vmLua = `
 local KEY, OFFSET = ${KEY}, ${OFFSET}
 local function decodeString(encoded)
@@ -195,6 +234,12 @@ local function run(program, OP)
     elseif op == OP.STORE then locals[arg] = pop()
     elseif op == OP.LOAD then push(locals[arg])
     elseif op == OP.PUSHSTR then push(decodeString(arg))
+    elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)
+    elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)
+    elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)
+    elseif op == OP.GE then local b = pop(); local a = pop(); push(a >= b and 1 or 0)
+    elseif op == OP.EQ then local b = pop(); local a = pop(); push(a == b and 1 or 0)
+    elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)
     elseif op == OP.JMP then ip = arg; goto continue
     elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end
     elseif op == OP.HALT then break
@@ -205,7 +250,7 @@ local function run(program, OP)
 end`;
 
   return `-- Protected by Luripe (https://github.com/robloxadmin04-web/Luripe)
--- Ang code sa ibaba ay naka-obfuscate: random opcodes, naitagong strings, junk.
+-- Ang code sa ibaba ay naka-obfuscate: random opcodes, naitagong strings, junk, control flow.
 ${opmapLua}
 
 ${programLua}
