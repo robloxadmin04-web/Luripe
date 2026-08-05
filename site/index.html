@@ -18,17 +18,18 @@
         --text-dim: #a3a3a3;
         --text-faint: #6b6b6b;
         --white: #ffffff;
-        --ok: #e5e5e5;
         --radius: 14px;
+        --radius-lg: 20px;
         --shadow: 0 16px 44px rgba(0,0,0,0.55);
+        --shadow-sm: 0 6px 20px rgba(0,0,0,0.4);
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
       html, body { min-height: 100%; }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
         background:
-          radial-gradient(circle at 15% -10%, rgba(255,255,255,0.05), transparent 40%),
-          radial-gradient(circle at 100% 0%, rgba(255,255,255,0.03), transparent 34%),
+          radial-gradient(circle at 12% -8%, rgba(255,255,255,0.06), transparent 42%),
+          radial-gradient(circle at 100% 0%, rgba(255,255,255,0.035), transparent 34%),
           linear-gradient(180deg, #0b0b0b 0%, #0a0a0a 100%);
         color: var(--text);
         display: flex;
@@ -39,20 +40,20 @@
       header {
         position: sticky;
         top: 0;
-        z-index: 10;
+        z-index: 20;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 18px;
-        padding: 16px 28px;
+        padding: 15px 28px;
         border-bottom: 1px solid var(--border);
-        background: rgba(10,10,10,0.85);
+        background: rgba(10,10,10,0.82);
         backdrop-filter: blur(14px);
       }
-      .brand { display: flex; align-items: center; gap: 14px; }
+      .brand { display: flex; align-items: center; gap: 13px; }
       .logo {
-        width: 46px;
-        height: 46px;
+        width: 42px;
+        height: 42px;
         border-radius: 12px;
         background: linear-gradient(145deg, #1d1d1d, #0c0c0c);
         border: 1px solid var(--border-strong);
@@ -61,14 +62,14 @@
         justify-content: center;
         flex-shrink: 0;
       }
-      .logo svg { width: 24px; height: 24px; color: var(--white); }
-      .title-group h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; color: var(--white); }
-      .title-group p { font-size: 12.5px; color: var(--text-dim); margin-top: 3px; }
+      .logo svg { width: 22px; height: 22px; color: var(--white); }
+      .title-group h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; color: var(--white); }
+      .title-group p { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
       .header-badges { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
       .pill {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 7px;
         border: 1px solid var(--border);
         background: var(--panel);
         color: var(--text-dim);
@@ -78,32 +79,96 @@
         font-weight: 600;
       }
       .pill svg { width: 13px; height: 13px; }
+
+      /* ---------- HERO ---------- */
+      .hero {
+        max-width: 1600px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 46px 28px 30px;
+        text-align: center;
+        position: relative;
+      }
+      .hero-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text-dim);
+        padding: 7px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 22px;
+      }
+      .hero-tag svg { width: 14px; height: 14px; color: var(--white); }
+      .hero h2 {
+        font-size: 44px;
+        line-height: 1.08;
+        font-weight: 800;
+        letter-spacing: -1.4px;
+        color: var(--white);
+        max-width: 760px;
+        margin: 0 auto;
+      }
+      .hero h2 .muted { color: var(--text-faint); }
+      .hero p {
+        margin: 18px auto 0;
+        max-width: 560px;
+        font-size: 15px;
+        line-height: 1.6;
+        color: var(--text-dim);
+      }
+      .hero-stats {
+        display: flex;
+        align-items: stretch;
+        justify-content: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-top: 32px;
+      }
+      .stat {
+        flex: 1 1 160px;
+        max-width: 200px;
+        background: linear-gradient(180deg, var(--panel-2), var(--panel));
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 18px 16px;
+        box-shadow: var(--shadow-sm);
+      }
+      .stat .num { font-size: 24px; font-weight: 800; color: var(--white); letter-spacing: -0.5px; }
+      .stat .lbl { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+      /* ---------- CARDS / PANELS ---------- */
       main {
         flex: 1;
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 20px;
-        padding: 26px 28px 8px;
+        padding: 8px 28px 8px;
         max-width: 1600px;
         width: 100%;
         margin: 0 auto;
       }
-      .panel {
+      .card, .panel {
         background: linear-gradient(180deg, var(--panel-2), var(--panel));
         border: 1px solid var(--border);
-        border-radius: var(--radius);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow);
+      }
+      .panel {
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        min-height: 540px;
-        box-shadow: var(--shadow);
+        min-height: 520px;
       }
       .panel:focus-within { border-color: var(--border-strong); }
       .panel-head {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 14px 18px;
+        padding: 15px 18px;
         border-bottom: 1px solid var(--border);
         background: rgba(255,255,255,0.015);
       }
@@ -134,8 +199,34 @@
       }
       textarea::placeholder { color: var(--text-faint); }
       #output { white-space: pre; overflow: auto; color: #cfcfcf; }
-      .icon-btn, button.primary, button.secondary, .select-wrap, input[type="password"] {
-        transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s;
+
+      /* ---------- CONTROLS CARD ---------- */
+      .controls-wrap {
+        max-width: 1600px;
+        width: 100%;
+        margin: 20px auto 0;
+        padding: 0 28px;
+      }
+      .controls {
+        padding: 18px 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .controls .divider { width: 1px; height: 30px; background: var(--border); }
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field-label {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        color: var(--text-faint);
+        padding-left: 2px;
+      }
+
+      .icon-btn, button.primary, button.secondary, select, input[type="password"] {
+        transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
       }
       .icon-btn {
         display: inline-flex;
@@ -153,16 +244,7 @@
       }
       .icon-btn:hover { background: var(--panel-hover); color: var(--white); border-color: var(--border-strong); }
       .icon-btn svg { width: 14px; height: 14px; }
-      .actionbar {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 18px 28px 20px;
-        max-width: 1600px;
-        width: 100%;
-        margin: 0 auto;
-        flex-wrap: wrap;
-      }
+
       button.primary {
         display: inline-flex;
         align-items: center;
@@ -172,11 +254,12 @@
         border: 1px solid var(--white);
         font-size: 14px;
         font-weight: 700;
-        padding: 11px 18px;
-        border-radius: 11px;
+        padding: 12px 20px;
+        border-radius: 12px;
         cursor: pointer;
+        box-shadow: 0 8px 22px rgba(255,255,255,0.08);
       }
-      button.primary:hover { transform: translateY(-1px); background: #e8e8e8; border-color: #e8e8e8; }
+      button.primary:hover { transform: translateY(-1px); background: #ededed; border-color: #ededed; }
       button.primary svg { width: 16px; height: 16px; }
       button.secondary {
         display: inline-flex;
@@ -187,60 +270,77 @@
         border: 1px solid var(--border);
         font-size: 13px;
         font-weight: 600;
-        padding: 10px 14px;
-        border-radius: 11px;
+        padding: 11px 15px;
+        border-radius: 12px;
         cursor: pointer;
       }
       button.secondary:hover { color: var(--white); border-color: var(--border-strong); background: var(--panel-hover); }
       button.secondary svg { width: 14px; height: 14px; }
-      /* custom dropdown: native select styled with SVG chevron */
+
+      /* ---------- POLISHED DROPDOWNS ---------- */
       .select-wrap { position: relative; display: inline-flex; align-items: center; }
-      .select-wrap svg {
+      .select-wrap .lead {
         position: absolute;
-        right: 11px;
-        width: 14px;
-        height: 14px;
-        color: var(--text-faint);
+        left: 13px;
+        width: 15px;
+        height: 15px;
+        color: var(--text-dim);
         pointer-events: none;
+        z-index: 1;
       }
+      .select-wrap .chev {
+        position: absolute;
+        right: 12px;
+        width: 15px;
+        height: 15px;
+        color: var(--text-dim);
+        pointer-events: none;
+        transition: transform 0.18s;
+      }
+      .select-wrap:hover .chev { color: var(--white); transform: translateY(1px); }
       select {
         appearance: none;
         -webkit-appearance: none;
         -moz-appearance: none;
-        background: var(--panel);
-        color: var(--text-dim);
+        background: linear-gradient(180deg, var(--panel-2), var(--panel));
+        color: var(--text);
         border: 1px solid var(--border);
         font-size: 13px;
         font-weight: 600;
-        padding: 10px 34px 10px 14px;
-        border-radius: 11px;
+        padding: 11px 38px 11px 38px;
+        border-radius: 12px;
         outline: none;
         cursor: pointer;
+        min-width: 180px;
       }
-      select:hover, select:focus { color: var(--white); border-color: var(--border-strong); background: var(--panel-hover); }
-      select option { background: #111111; color: var(--text); }
+      select:hover { border-color: var(--border-strong); background: var(--panel-hover); }
+      select:focus { border-color: var(--white); box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
+      select option { background: #141414; color: var(--text); padding: 8px; }
+
       .input-wrap { position: relative; display: inline-flex; align-items: center; }
-      .input-wrap svg {
+      .input-wrap .lead {
         position: absolute;
-        left: 12px;
-        width: 14px;
-        height: 14px;
-        color: var(--text-faint);
+        left: 13px;
+        width: 15px;
+        height: 15px;
+        color: var(--text-dim);
         pointer-events: none;
       }
       input[type="password"] {
-        background: var(--panel);
+        background: linear-gradient(180deg, var(--panel-2), var(--panel));
         color: var(--text);
         border: 1px solid var(--border);
         font-size: 13px;
         font-weight: 500;
-        padding: 10px 14px 10px 34px;
-        border-radius: 11px;
+        padding: 11px 14px 11px 38px;
+        border-radius: 12px;
         outline: none;
-        width: 190px;
+        width: 210px;
       }
       input[type="password"]::placeholder { color: var(--text-faint); }
-      input[type="password"]:hover, input[type="password"]:focus { border-color: var(--border-strong); background: var(--panel-hover); }
+      input[type="password"]:hover { border-color: var(--border-strong); background: var(--panel-hover); }
+      input[type="password"]:focus { border-color: var(--white); box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
+
       #status {
         margin-left: auto;
         font-size: 13px;
@@ -248,17 +348,21 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        padding: 10px 14px;
-        border-radius: 11px;
+        padding: 11px 15px;
+        border-radius: 12px;
         background: var(--panel);
         border: 1px solid var(--border);
-        min-height: 42px;
+        min-height: 44px;
+        align-self: flex-end;
       }
       #status.ok { color: var(--white); border-color: var(--border-strong); }
       #status.err { color: var(--white); border-color: #555; background: #1c1c1c; }
-      #aiPanel { max-width: 1600px; width: 100%; margin: 0 auto; padding: 0 28px 18px; }
+
+      #aiPanel { max-width: 1600px; width: 100%; margin: 18px auto 0; padding: 0 28px; }
+
       footer {
-        padding: 16px 28px 26px;
+        padding: 34px 28px 30px;
+        margin-top: 20px;
         font-size: 12px;
         color: var(--text-faint);
         display: flex;
@@ -271,17 +375,20 @@
       footer a { color: var(--text-dim); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
       footer a:hover { color: var(--white); }
       footer a svg { width: 14px; height: 14px; }
+
       @media (max-width: 1080px) { main { grid-template-columns: 1fr; } }
       @media (max-width: 860px) {
         header { padding: 14px 18px; align-items: flex-start; flex-direction: column; }
-        main { padding: 18px; gap: 16px; }
-        .actionbar { padding: 16px 18px; }
-        #aiPanel { padding: 0 18px 16px; }
-        #status { margin-left: 0; width: 100%; order: 10; }
+        .hero { padding: 34px 18px 22px; }
+        .hero h2 { font-size: 32px; letter-spacing: -0.8px; }
+        main { padding: 8px 18px; gap: 16px; }
+        .controls-wrap { padding: 0 18px; }
+        .controls { flex-direction: column; align-items: stretch; }
+        .controls .divider { display: none; }
+        .field, .select-wrap, .input-wrap, select, input[type="password"] { width: 100%; }
+        #status { margin-left: 0; width: 100%; align-self: stretch; order: 10; }
+        #aiPanel { padding: 0 18px; }
         .panel { min-height: 320px; }
-        input[type="password"] { width: 100%; min-width: 200px; }
-        .input-wrap { flex: 1; }
-        .input-wrap input { width: 100%; }
       }
       textarea::-webkit-scrollbar, #output::-webkit-scrollbar { width: 10px; height: 10px; }
       textarea::-webkit-scrollbar-thumb, #output::-webkit-scrollbar-thumb { background: #2c2c2c; border-radius: 5px; }
@@ -299,7 +406,7 @@
         </div>
         <div class="title-group">
           <h1>Luripe</h1>
-          <p>AI-assisted Luau obfuscator - VM, Wrapper and Raw modes</p>
+          <p>AI-assisted Luau obfuscator</p>
         </div>
       </div>
       <div class="header-badges">
@@ -308,6 +415,20 @@
         <span class="pill"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 4.8L19 10l-4.8 2.2L12 17l-2.2-4.8L5 10l4.8-2.2L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>AI analyze</span>
       </div>
     </header>
+
+    <section class="hero">
+      <span class="hero-tag">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 5.2L20 8l-4.2 3.8L17 17l-5-2.8L7 17l1.2-5.2L4 8l5.6-.8L12 2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Luau protection, in your browser
+      </span>
+      <h2>Obfuscate your scripts <span class="muted">without leaving the tab.</span></h2>
+      <p>Virtual-machine protection for logic, a universal wrapper for UI, and an AI that picks the strongest mode that still runs.</p>
+      <div class="hero-stats">
+        <div class="stat"><div class="num">11</div><div class="lbl">Protection layers</div></div>
+        <div class="stat"><div class="num">3</div><div class="lbl">Obfuscation modes</div></div>
+        <div class="stat"><div class="num">100%</div><div class="lbl">Client-side</div></div>
+      </div>
+    </section>
 
     <main>
       <div class="panel">
@@ -346,43 +467,63 @@ end</textarea>
       </div>
     </main>
 
-    <div class="actionbar">
-      <button class="primary" onclick="run()">
-        <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 11V7a4 4 0 018 0v4" stroke="currentColor" stroke-width="1.8"/></svg>
-        Obfuscate
-      </button>
-      <button class="secondary" onclick="clearAll()">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M6 7h12M9 7V5h6v2M8 7l1 12h6l1-12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Clear
-      </button>
-      <button class="secondary" onclick="aiAnalyze()" id="aiBtn">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 4.8L19 10l-4.8 2.2L12 17l-2.2-4.8L5 10l4.8-2.2L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        AI Analyze
-      </button>
-      <div class="select-wrap">
-        <select id="aiProvider" title="AI provider">
-          <option value="gemini">Gemini (free)</option>
-          <option value="openai">OpenAI</option>
-          <option value="openrouter">OpenRouter</option>
-          <option value="groq">Groq (free)</option>
-        </select>
-        <svg viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="controls-wrap">
+      <div class="card controls">
+        <button class="primary" onclick="run()">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 11V7a4 4 0 018 0v4" stroke="currentColor" stroke-width="1.8"/></svg>
+          Obfuscate
+        </button>
+        <button class="secondary" onclick="clearAll()">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 7h12M9 7V5h6v2M8 7l1 12h6l1-12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Clear
+        </button>
+        <button class="secondary" onclick="aiAnalyze()" id="aiBtn">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 4.8L19 10l-4.8 2.2L12 17l-2.2-4.8L5 10l4.8-2.2L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          AI Analyze
+        </button>
+
+        <div class="divider"></div>
+
+        <div class="field">
+          <span class="field-label">Mode</span>
+          <div class="select-wrap">
+            <svg class="lead" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <select id="mode" title="Obfuscation mode">
+              <option value="auto">Auto (AI picks)</option>
+              <option value="vm">VM (strong)</option>
+              <option value="wrapper">Wrapper (universal)</option>
+              <option value="raw">Raw (always runs)</option>
+            </select>
+            <svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">AI provider</span>
+          <div class="select-wrap">
+            <svg class="lead" viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 4.8L19 10l-4.8 2.2L12 17l-2.2-4.8L5 10l4.8-2.2L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            <select id="aiProvider" title="AI provider">
+              <option value="gemini">Gemini (free)</option>
+              <option value="openai">OpenAI</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="groq">Groq (free)</option>
+            </select>
+            <svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">API key</span>
+          <div class="input-wrap">
+            <svg class="lead" viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0110 0v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
+            <input id="aiKey" type="password" placeholder="Your AI API key" />
+          </div>
+        </div>
+
+        <span id="status">Ready.</span>
       </div>
-      <div class="input-wrap">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0110 0v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
-        <input id="aiKey" type="password" placeholder="Your AI API key" />
-      </div>
-      <div class="select-wrap">
-        <select id="mode" title="Obfuscation mode">
-          <option value="auto">Mode: Auto</option>
-          <option value="vm">Mode: VM (strong)</option>
-          <option value="wrapper">Mode: Wrapper (universal)</option>
-          <option value="raw">Mode: Raw (always runs)</option>
-        </select>
-        <svg viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </div>
-      <span id="status">Ready.</span>
     </div>
+
     <div id="aiPanel" style="display:none;"></div>
 
     <footer>
