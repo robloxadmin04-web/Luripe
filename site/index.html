@@ -278,44 +278,59 @@
       button.secondary svg { width: 14px; height: 14px; }
 
       /* ---------- POLISHED DROPDOWNS ---------- */
-      .select-wrap { position: relative; display: inline-flex; align-items: center; }
-      .select-wrap .lead {
-        position: absolute;
-        left: 13px;
-        width: 15px;
-        height: 15px;
-        color: var(--text-dim);
-        pointer-events: none;
-        z-index: 1;
+      /* ---- custom dropdown (identical on phone + desktop) ---- */
+      .cs { position: relative; display: inline-block; min-width: 200px; }
+      .cs select.cs-native {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        opacity: 0; border: 0; margin: 0; padding: 0;
+        pointer-events: none; /* visual button handles interaction */
       }
-      .select-wrap .chev {
-        position: absolute;
-        right: 12px;
-        width: 15px;
-        height: 15px;
-        color: var(--text-dim);
-        pointer-events: none;
-        transition: transform 0.18s;
-      }
-      .select-wrap:hover .chev { color: var(--white); transform: translateY(1px); }
-      select {
-        appearance: none;
-        -webkit-appearance: none;
-        -moz-appearance: none;
+      .cs-btn {
+        display: flex; align-items: center; gap: 10px;
+        width: 100%;
         background: linear-gradient(180deg, var(--panel-2), var(--panel));
         color: var(--text);
         border: 1px solid var(--border);
-        font-size: 13px;
-        font-weight: 600;
-        padding: 11px 38px 11px 38px;
+        font-size: 13px; font-weight: 600;
+        padding: 11px 14px;
         border-radius: 12px;
-        outline: none;
         cursor: pointer;
-        min-width: 180px;
+        user-select: none;
+        transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
       }
-      select:hover { border-color: var(--border-strong); background: var(--panel-hover); }
-      select:focus { border-color: var(--white); box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
-      select option { background: #141414; color: var(--text); padding: 8px; }
+      .cs-btn:hover { border-color: var(--border-strong); background: var(--panel-hover); }
+      .cs.open .cs-btn { border-color: var(--white); box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
+      .cs-btn .lead { width: 15px; height: 15px; color: var(--text-dim); flex-shrink: 0; }
+      .cs-btn .cs-val { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .cs-btn .chev { width: 15px; height: 15px; color: var(--text-dim); flex-shrink: 0; transition: transform 0.18s; }
+      .cs.open .cs-btn .chev { transform: rotate(180deg); color: var(--white); }
+      .cs-menu {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0; right: 0;
+        background: linear-gradient(180deg, #191919, #141414);
+        border: 1px solid var(--border-strong);
+        border-radius: 14px;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+        padding: 6px;
+        z-index: 50;
+        display: none;
+        max-height: 320px;
+        overflow: auto;
+      }
+      .cs.open .cs-menu { display: block; }
+      .cs-opt {
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 11px 12px;
+        border-radius: 9px;
+        font-size: 14px; font-weight: 500;
+        color: var(--text-dim);
+        cursor: pointer;
+      }
+      .cs-opt:hover { background: var(--panel-hover); color: var(--white); }
+      .cs-opt.sel { color: var(--white); }
+      .cs-opt .tick { width: 16px; height: 16px; opacity: 0; flex-shrink: 0; }
+      .cs-opt.sel .tick { opacity: 1; }
 
       .input-wrap { position: relative; display: inline-flex; align-items: center; }
       .input-wrap .lead {
@@ -486,29 +501,37 @@ end</textarea>
 
         <div class="field">
           <span class="field-label">Mode</span>
-          <div class="select-wrap">
-            <svg class="lead" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-            <select id="mode" title="Obfuscation mode">
+          <div class="cs" data-cs>
+            <select id="mode" class="cs-native" title="Obfuscation mode">
               <option value="auto">Auto (AI picks)</option>
               <option value="vm">VM (strong)</option>
               <option value="wrapper">Wrapper (universal)</option>
               <option value="raw">Raw (always runs)</option>
             </select>
-            <svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div class="cs-btn" tabindex="0">
+              <svg class="lead" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span class="cs-val"></span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="cs-menu"></div>
           </div>
         </div>
 
         <div class="field">
           <span class="field-label">AI provider</span>
-          <div class="select-wrap">
-            <svg class="lead" viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 4.8L19 10l-4.8 2.2L12 17l-2.2-4.8L5 10l4.8-2.2L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-            <select id="aiProvider" title="AI provider">
+          <div class="cs" data-cs>
+            <select id="aiProvider" class="cs-native" title="AI provider">
               <option value="gemini">Gemini (free)</option>
               <option value="openai">OpenAI</option>
               <option value="openrouter">OpenRouter</option>
               <option value="groq">Groq (free)</option>
             </select>
-            <svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div class="cs-btn" tabindex="0">
+              <svg class="lead" viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 4.8L19 10l-4.8 2.2L12 17l-2.2-4.8L5 10l4.8-2.2L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+              <span class="cs-val"></span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="cs-menu"></div>
           </div>
         </div>
 
@@ -1584,5 +1607,54 @@ end</textarea>
         );
       }
     </script>
-</body>
+    <script>
+(function(){
+  function initCS(cs){
+    var sel = cs.querySelector('select.cs-native');
+    var btn = cs.querySelector('.cs-btn');
+    var val = cs.querySelector('.cs-val');
+    var menu = cs.querySelector('.cs-menu');
+    var opts = Array.prototype.slice.call(sel.options);
+    var tick = '<svg class="tick" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    function render(){
+      menu.innerHTML = '';
+      opts.forEach(function(o){
+        var row = document.createElement('div');
+        row.className = 'cs-opt' + (o.selected ? ' sel' : '');
+        row.innerHTML = '<span>' + o.textContent + '</span>' + tick;
+        row.addEventListener('click', function(e){
+          e.stopPropagation();
+          sel.value = o.value;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          sync(); close();
+        });
+        menu.appendChild(row);
+      });
+    }
+    function sync(){
+      var o = sel.options[sel.selectedIndex];
+      val.textContent = o ? o.textContent : '';
+      Array.prototype.forEach.call(menu.children, function(row, i){
+        row.classList.toggle('sel', opts[i].value === sel.value);
+      });
+    }
+    function open(){ document.querySelectorAll('.cs.open').forEach(function(x){ x.classList.remove('open'); }); cs.classList.add('open'); }
+    function close(){ cs.classList.remove('open'); }
+    function toggle(e){ e.stopPropagation(); cs.classList.contains('open') ? close() : open(); }
+    btn.addEventListener('click', toggle);
+    btn.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(e); } });
+    // keep custom UI in sync if code changes the native value (e.g. localStorage restore)
+    sel.addEventListener('change', sync);
+    render(); sync();
+  }
+  function boot(){
+    document.querySelectorAll('.cs[data-cs]').forEach(initCS);
+    document.addEventListener('click', function(){ document.querySelectorAll('.cs.open').forEach(function(x){ x.classList.remove('open'); }); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+    
+  </body>
 </html>
