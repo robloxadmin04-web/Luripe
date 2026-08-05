@@ -1,0 +1,27 @@
+{
+  "name": "luripe",
+  "version": "1.0.0",
+  "description": "Dito na nagsisimula ang tunay na compiler. Sa halip na manu-manong sulat ng\r bytecode (tulad ng ginawa natin sa `demo_program.lua`), kukuha tayo ng\r **normal na Lua source** at gagawing bytecode automatically.",
+  "main": "compile.js",
+  "directories": {
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robloxadmin04-web/Luripe.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/robloxadmin04-web/Luripe/issues"
+  },
+  "homepage": "https://github.com/robloxadmin04-web/Luripe#readme",
+  "dependencies": {
+    "luaparse": "^0.3.1"
+  }
+}

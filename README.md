@@ -1,60 +1,49 @@
-# Luripe
+# Step 2 — Compiler Skeleton
 
-A custom Lua/Luau virtual-machine obfuscator — like Luraph.
+Dito na nagsisimula ang tunay na compiler. Sa halip na manu-manong sulat ng
+bytecode (tulad ng ginawa natin sa `demo_program.lua`), kukuha tayo ng
+**normal na Lua source** at gagawing bytecode automatically.
 
-Luripe takes readable Lua source code and turns it into a protected script:
-the original code is compiled down to a **custom, randomized instruction set**
-and shipped alongside a tiny **virtual machine** that only understands _that_
-instruction set. An attacker can't just run a standard decompiler on it, because
-the opcodes don't match any known Lua VM.
+## Setup (isang beses lang)
 
----
-
-## The big picture
+Buksan ang terminal sa `compiler/` folder:
 
 ```
-[ your source .lua ]
-        |
-        v
-  +-------------------------------------------+
-  |  COMPILER  (Node / TypeScript)            |
-  |   1. parse   -> AST                       |
-  |   2. compile -> instructions              |
-  |   3. remap   -> custom randomized opcodes |
-  |   4. encode  -> strings & constants       |
-  |   5. serialize the bytecode blob          |
-  +-------------------------------------------+
-        |
-        v
-  +-------------------------------------------+
-  |  OUTPUT .lua  (ships to Roblox/FiveM/etc) |
-  |   - encoded bytecode blob                 |
-  |   - a VM that decodes + runs it           |
-  +-------------------------------------------+
+cd compiler
+npm init -y
+npm install luaparse
 ```
 
----
-
-## Project layout
+## Patakbuhin
 
 ```
-Luripe/
-├─ README.md            <- this file
-├─ ROADMAP.md           <- build order, step by step
-├─ vm/
-│   └─ vm.lua           <- the runtime interpreter (Lua-in-Lua VM)
-├─ compiler/            <- (later) the AST -> bytecode compiler in Node
-│   └─ .gitkeep
-└─ examples/
-    └─ demo_program.lua <- a hand-written program in our custom instruction set
+node compile.js
 ```
 
-## Start here
+Kukunin nito ang code sa loob ng `compile.js` (halimbawa: `print(1 + 2)`),
+ipa-parse, gagawing bytecode, at ipi-print ang bytecode na tugma sa `vm.lua`.
 
-Read `ROADMAP.md`, then open `vm/vm.lua`. Run the demo with:
+## Ang daloy
 
 ```
-lua examples/demo_program.lua
+"print(1 + 2)"
+      |
+      v   luaparse
+   [ AST ]                 <- tree ng code structure
+      |
+      v   compile()        <- ang isinulat natin
+[ bytecode ]               <- { PUSH 1, PUSH 2, ADD, PRINT, HALT }
+      |
+      v   (Step 3)
+   tumatakbo sa vm.lua -> 3
 ```
 
-(You need `lua` installed, or paste it into a Luau/Roblox executor.)
+## Ano ang sinusuportahan (sa ngayon)
+
+- Numbers: `42`
+- Addition/subtract: `1 + 2`, `10 - 3`
+- Multiply: `4 * 5`
+- print(): `print(1 + 2)`
+
+Ang layunin ng Step 2 ay MALIIT: patunayan na kaya nating gawing bytecode
+ang isang simpleng expression. Palalakihin natin ang sinusuportahan mamaya.
