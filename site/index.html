@@ -1210,7 +1210,7 @@ end</textarea>
             compileBlock(node.body);
             emit(OP.JMP, top);
             patch(jz, here());
-          } else if (node.type === "NumericForStatement") {
+          } else if (node.type === "NumericForStatement" || node.type === "ForNumericStatement") {
             const varSlot = slotFor(node.variable.name);
             compileExpr(node.start); emit(OP.STORE, varSlot);
             const limitSlot = nextSlot++;
