@@ -645,7 +645,7 @@ end</textarea>
       
       // Build the VM generator. Returns Lua source as a string given:
       //   names: shared runtime names, H handler table name, ctrl record fields.
-      function generateVM() {
+      function generateVM(OP) {
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
         const PER_HANDLER_MUTATION = true;  // layer 2: opaque predicate + rand names per handler
         const ANTI_DEBUG = true;            // layer 1: runtime hook/dump guards
@@ -1365,7 +1365,7 @@ end</textarea>
 
         const r = () => "_" + Math.random().toString(36).slice(2, 7);
         const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r();
-        const gen = generateVM();
+        const gen = generateVM(OP);
         const vmMin = minifyLua(gen.src);
         
         // Encoded opcode map: three arrays + runtime pairing (no NAME=num literal).
