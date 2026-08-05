@@ -432,8 +432,22 @@ end</textarea
         Obfuscate
       </button>
       <button class="secondary" onclick="clearAll()">Clear</button>
+      <button class="secondary" onclick="aiAnalyze()" id="aiBtn">AI Analyze</button>
+      <select id="aiProvider"
+        style="background:var(--bg);border:1px solid var(--border-light);color:var(--text-dim);
+        font-size:12px;padding:9px 10px;border-radius:8px;outline:none;">
+        <option value="gemini">Gemini (free)</option>
+        <option value="openai">OpenAI</option>
+        <option value="openrouter">OpenRouter</option>
+        <option value="groq">Groq (free)</option>
+      </select>
+      <input id="aiKey" type="password" placeholder="Your AI API key"
+        style="background:var(--bg);border:1px solid var(--border-light);color:var(--text-dim);
+        font-size:12px;padding:9px 12px;border-radius:8px;width:170px;outline:none;" />
       <span id="status">Ready.</span>
     </div>
+    <div id="aiPanel" style="display:none;max-width:1500px;width:100%;margin:0 auto;
+      padding:0 32px 20px;"></div>
 
     <footer>
       <span>Random opcodes per build</span><span class="dot">&middot;</span>
@@ -1223,6 +1237,145 @@ end</textarea
         document.getElementById("input").value = "";
         document.getElementById("output").value = "";
         setStatus("Cleared.");
+      }
+
+      // ================= AI ANALYZER (Google Gemini) =================
+      // Reads raw Lua BEFORE obfuscation, diagnoses which constructs are
+      // VM-safe vs unsupported, and recommends VM mode or Wrapper mode.
+      // User supplies their own Gemini API key (saved locally, never sent
+      // anywhere except Google). Free tier: gemini-2.0-flash.
+
+      (function () {
+        const saved = localStorage.getItem("luripe_ai_key");
+        if (saved) { const f = document.getElementById("aiKey"); if (f) f.value = saved; }
+        const savedProv = localStorage.getItem("luripe_ai_provider");
+        if (savedProv) { const s = document.getElementById("aiProvider"); if (s) s.value = savedProv; }
+      })();
+
+      function aiPanelShow(html) {
+        const p = document.getElementById("aiPanel");
+        p.style.display = "block";
+        p.innerHTML = html;
+      }
+
+      async function aiAnalyze() {
+        const src = document.getElementById("input").value;
+        const key = (document.getElementById("aiKey").value || "").trim();
+        const provider = document.getElementById("aiProvider").value;
+        if (!src.trim()) { setStatus("No input to analyze.", "err"); return; }
+        if (!key) { setStatus("Enter your AI API key first.", "err"); return; }
+        localStorage.setItem("luripe_ai_key", key);
+        localStorage.setItem("luripe_ai_provider", provider);
+
+        const btn = document.getElementById("aiBtn");
+        btn.disabled = true;
+        setStatus("AI analyzing...");
+
+        const supported =
+          "SUPPORTED by the Luripe VM: local variables, numbers, strings, booleans, nil, " +
+          "arithmetic (+ - * / %), comparisons (< > <= >= == ~=), concat (..), and/or/not, " +
+          "if/elseif/else, while, numeric for, generic for (ipairs/pairs), named functions, " +
+          "anonymous functions/closures, method calls obj:m(), qualified calls T.f(), tables, " +
+          "multiple returns, varargs, common builtins (math.*, string.*, table.insert/remove/concat, " +
+          "tostring, tonumber, type, print), Roblox globals/services passthrough (game, getgenv, " +
+          "workspace, game:GetService, Instance.new), property get/set on Instances.\n" +
+          "NOT reliably supported: heavy userdata-driven UI frameworks with hundreds of property " +
+          "assignments (Color3/UDim2/Vector2/Enum used extensively), setmetatable/metatables, " +
+          "pcall/xpcall, coroutines, goto, repeat/until, bit32, deeply nested UI construction.";
+
+        const prompt =
+          "You are a static analyzer for the 'Luripe' Luau VM obfuscator. " +
+          supported + "\n\n" +
+          "Analyze the following Luau script. Return STRICT JSON only, no markdown, with keys: " +
+          "{\"verdict\":\"VM_SAFE\"|\"RISKY\"|\"NOT_VM_SAFE\", " +
+          "\"recommendedMode\":\"VM\"|\"WRAPPER\", " +
+          "\"unsupported\":[list of specific unsupported constructs found], " +
+          "\"reasons\":[short bullet reasons], " +
+          "\"summary\":\"one-sentence plain recommendation\"}.\n\n" +
+          "SCRIPT:\n" + src.slice(0, 12000);
+
+        try {
+          let raw;
+          if (provider === "gemini") {
+            const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+              "gemini-2.0-flash:generateContent?key=" + encodeURIComponent(key);
+            const res = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
+              }),
+            });
+            if (!res.ok) { const t = await res.text(); throw new Error("Gemini " + res.status + ": " + t.slice(0, 160)); }
+            const data = await res.json();
+            raw = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0].text;
+          } else {
+            // OpenAI-compatible: OpenAI, OpenRouter, Groq
+            let endpoint, model;
+            if (provider === "openai") { endpoint = "https://api.openai.com/v1/chat/completions"; model = "gpt-4o-mini"; }
+            else if (provider === "openrouter") { endpoint = "https://openrouter.ai/api/v1/chat/completions"; model = "google/gemini-2.0-flash-exp:free"; }
+            else if (provider === "groq") { endpoint = "https://api.groq.com/openai/v1/chat/completions"; model = "llama-3.3-70b-versatile"; }
+            else throw new Error("Unknown provider.");
+            const res = await fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+              body: JSON.stringify({
+                model: model,
+                temperature: 0.1,
+                response_format: { type: "json_object" },
+                messages: [{ role: "user", content: prompt }],
+              }),
+            });
+            if (!res.ok) { const t = await res.text(); throw new Error(provider + " " + res.status + ": " + t.slice(0, 160)); }
+            const data = await res.json();
+            raw = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+          }
+          if (!raw) throw new Error("Empty AI response.");
+          let rep;
+          try { rep = JSON.parse(raw); }
+          catch (e) {
+            const m = raw.match(/\{[\s\S]*\}/);
+            rep = m ? JSON.parse(m[0]) : null;
+          }
+          if (!rep) throw new Error("Could not parse AI response.");
+          renderReport(rep);
+          setStatus("AI analysis complete.", "ok");
+        } catch (e) {
+          aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);' +
+            'border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px;">' +
+            "AI error: " + esc(e.message) + "</div>");
+          setStatus("AI analysis failed.", "err");
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
+      function renderReport(rep) {
+        const color = rep.verdict === "VM_SAFE" ? "var(--ok)" :
+          rep.verdict === "RISKY" ? "#f5c451" : "var(--err)";
+        const items = (arr) => (arr && arr.length)
+          ? arr.map((x) => "<li>" + esc(x) + "</li>").join("") : "<li>None</li>";
+        const modeNote = rep.recommendedMode === "WRAPPER"
+          ? "Recommended: <b>Wrapper mode</b> (universal, lighter protection) - this script uses features the VM cannot run reliably."
+          : "Recommended: <b>VM mode</b> (full virtualization) - safe to obfuscate normally.";
+        aiPanelShow(
+          '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 20px;">' +
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+          '<span style="font-weight:700;font-size:14px;color:' + color + ';">' + esc(rep.verdict || "?") + '</span>' +
+          '<span style="color:var(--text-dim);font-size:13px;">' + esc(rep.summary || "") + '</span></div>' +
+          '<div style="color:var(--text-dim);font-size:12px;margin-bottom:12px;">' + modeNote + '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:12px;color:var(--text-dim);">' +
+          '<div><div style="font-weight:600;color:var(--text);margin-bottom:6px;">Unsupported found</div>' +
+          '<ul style="margin:0;padding-left:18px;line-height:1.7;">' + items(rep.unsupported) + '</ul></div>' +
+          '<div><div style="font-weight:600;color:var(--text);margin-bottom:6px;">Reasons</div>' +
+          '<ul style="margin:0;padding-left:18px;line-height:1.7;">' + items(rep.reasons) + '</ul></div>' +
+          '</div></div>'
+        );
       }
     </script>
 </body>
