@@ -1394,12 +1394,29 @@ end</textarea>
         return loader;
       }
 
+      // Static detector: constructs the VM cannot run reliably in Luau.
+      // If a script touches any of these, force Wrapper mode so it actually runs.
+      function needsWrapper(src) {
+        var patterns = [
+          /Color3\s*\./, /UDim2\s*\./, /UDim\s*\.\s*new/, /Vector2\s*\./, /Vector3\s*\./,
+          /Enum\s*\./, /Instance\s*\.\s*new/, /\bgame\s*:/, /\bgame\s*\./,
+          /GetService/, /:Connect\b/, /setmetatable/, /getmetatable/,
+          /\btask\s*\./, /\bwait\s*\(/, /\bspawn\s*\(/, /\bpcall\b/, /\bwarn\b/,
+          /TweenService/, /RunService/, /UserInputService/, /:GetChildren/, /:FindFirstChild/,
+          /:WaitForChild/, /:GetDescendants/, /\bworkspace\b/, /BrickColor/, /CFrame\s*\./
+        ];
+        for (var i = 0; i < patterns.length; i++) if (patterns[i].test(src)) return true;
+        return false;
+      }
+
       function pickMode() {
         const m = document.getElementById("mode").value;
         if (m === "vm" || m === "wrapper" || m === "raw") return m;
-        // auto: use AI verdict if present
+        // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
+        const src = document.getElementById("input").value;
+        if (needsWrapper(src)) return "wrapper";
         return "vm";
       }
 
@@ -1417,7 +1434,7 @@ end</textarea>
           try {
             setStatus("Obfuscating (wrapper mode)...");
             outEl.value = wrapperBundle(src);
-            setStatus("Protected in Wrapper mode - universal compatibility, lighter protection.", "ok");
+            setStatus("Protected in Wrapper mode - this script uses Roblox userdata (Color3/UDim2/Enum/etc), so VM would not run. Wrapper runs 100%.", "ok");
           } catch (e) { outEl.value = ""; setStatus(e.message, "err"); }
           return;
         }
