@@ -769,7 +769,7 @@ end</textarea>
           "if type(" + N.refchar + ")~=\"function\" then return false end " +
           "if debug and debug.gethook and debug.gethook()~=nil then return false end " +
           "return true end;" +
-          "if not " + N.guard + "() then program={{" + OP.HALT + "}} end;"
+          "if not " + N.guard + "() then program={{" + opnum.HALT + "}} end;"
         ) : "";
 
         const src =
