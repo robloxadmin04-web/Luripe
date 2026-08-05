@@ -649,9 +649,9 @@ end</textarea>
           PUSH:     P+"(a)",
           LOADK:    P+"("+N.K+"[a])",
           POP:      O+"()",
-          ADD:      "local b="+O+"();local x="+O+"();"+P+"(x+b)",
+          ADD:      (Math.random()<0.5 ? "local x="+O+"();local b="+O+"();"+P+"(b+x)" : "local b="+O+"();local x="+O+"();"+P+"(x+b)"),
           SUB:      "local b="+O+"();local x="+O+"();"+P+"(x-b)",
-          MUL:      "local b="+O+"();local x="+O+"();"+P+"(x*b)",
+          MUL:      (Math.random()<0.5 ? "local x="+O+"();local b="+O+"();"+P+"(b*x)" : "local b="+O+"();local x="+O+"();"+P+"(x*b)"),
           DIV:      "local b="+O+"();local x="+O+"();"+P+"(x/b)",
           MOD:      "local b="+O+"();local x="+O+"();"+P+"(x%b)",
           PRINT:    "print("+S+"["+SP+"()])",
@@ -664,8 +664,8 @@ end</textarea>
           GT:       "local b="+O+"();local x="+O+"();"+P+"(x>b and 1 or 0)",
           LE:       "local b="+O+"();local x="+O+"();"+P+"(x<=b and 1 or 0)",
           GE:       "local b="+O+"();local x="+O+"();"+P+"(x>=b and 1 or 0)",
-          EQ:       "local b="+O+"();local x="+O+"();"+P+"(x==b and 1 or 0)",
-          NE:       "local b="+O+"();local x="+O+"();"+P+"(x~=b and 1 or 0)",
+          EQ:       (Math.random()<0.5 ? "local x="+O+"();local b="+O+"();"+P+"(b==x and 1 or 0)" : "local b="+O+"();local x="+O+"();"+P+"(x==b and 1 or 0)"),
+          NE:       (Math.random()<0.5 ? "local x="+O+"();local b="+O+"();"+P+"(b~=x and 1 or 0)" : "local b="+O+"();local x="+O+"();"+P+"(x~=b and 1 or 0)"),
           NOT:      "local x="+O+"();"+P+"((x==0 or x==false or x==nil) and 1 or 0)",
           TLEN:     "local t="+O+"();"+P+"(#t)",
           NEWTABLE: P+"({})",
@@ -707,11 +707,25 @@ end</textarea>
           return dead + "if " + jv + ">=0 then " + code + " else " + jv + "=" + jv + "+1 end";
         }
 
-        // Layer 3: index handlers by NUMBER (OP[name]), not OP.NAME text.
+        // Layer 3: PURE-NUMERIC handlers. Emit H[<number>]=... using the literal
+        // opcode number (from the OP map), so no opcode NAME string ever appears.
         const order = shuffle(OPS.slice());
+        const opnum = {}; // name -> literal number for this build
+        OPS.forEach((o) => { opnum[o] = OP[o]; });
         const handlerLines = order.map((o) =>
-          N.H + "[" + "OP." + o + "]=function(a) " + mutate(body[o]) + " end"
+          N.H + "[" + opnum[o] + "]=function(a) " + mutate(body[o]) + " end"
         );
+        // Binary-search dispatch tree over the numeric opcodes (IronBrew-style),
+        // replacing a flat H[op] lookup. Shuffled leaf order per build.
+        const nums = OPS.map((o) => opnum[o]).sort((a,b)=>a-b);
+        function bsearch(lo, hi) {
+          if (lo > hi) return "error(\"?\")";
+          if (lo === hi) return N.H + "[" + nums[lo] + "](" + N.arg + ")";
+          const mid = (lo + hi) >> 1;
+          return "if " + N.op + "<=" + nums[mid] + " then " + bsearch(lo, mid) +
+                 " else " + bsearch(mid+1, hi) + " end";
+        }
+        const dispatchTree = bsearch(0, nums.length - 1);
 
         // Layer 1: anti-debug guards (run once before dispatch).
         // Capture trusted refs; if string.char / string.sub were swapped, or if
@@ -722,7 +736,7 @@ end</textarea>
           "if type(" + N.refchar + ")~=\"function\" then return false end " +
           "if debug and debug.gethook and debug.gethook()~=nil then return false end " +
           "return true end;" +
-          "if not " + N.guard + "() then program={{OP.HALT}} end;"
+          "if not " + N.guard + "() then program={{" + OP.HALT + "}} end;"
         ) : "";
 
         const src =
@@ -786,9 +800,7 @@ end</textarea>
           "    local " + N.inst + "=program[" + N.ctrl + "." + CF.ip + "]\n" +
           "    local " + N.op + "," + N.arg + "=" + N.inst + "[1]," + N.inst + "[2]\n" +
           "    " + N.ctrl + "." + CF.jumped + "=false\n" +
-          "    local h=" + N.H + "[" + N.op + "]\n" +
-          "    if h==nil then error(\"hindi kilalang opcode: \"..tostring(" + N.op + ")) end\n" +
-          "    h(" + N.arg + ")\n" +
+          "    " + dispatchTree + "\n" +
           "    if " + N.ctrl + "." + CF.halt + " then break end\n" +
           "    if not " + N.ctrl + "." + CF.jumped + " then " + N.ctrl + "." + CF.ip + "=" + N.ctrl + "." + CF.ip + "+1 end\n" +
           "  end\n" +
