@@ -59,6 +59,13 @@ const OPS = [
   "STOREMULTI",
   "VARARG",
   "NOT",
+  "NEWCELL",
+  "LOADCELL",
+  "STORECELL",
+  "LOADUP",
+  "STOREUP",
+  "CLOSURE",
+  "CALLC",
 ];
 function buildOpcodeMap() {
   const nums = [];
@@ -119,6 +126,8 @@ function compile(source) {
 
   const functions = {};
   let scope = {};
+  let pendingClosures = [];
+  let varargSlot = 0;
   let nextSlot = 0;
   const pushScope = () => {
     scope = {};
@@ -151,6 +160,94 @@ function compile(source) {
     return null;
   }
 
+  // === CLOSURES ===
+  // Kolektahin ang lahat ng Identifier na ginamit sa isang function body.
+  function collectNames(node, out) {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const n of node) collectNames(n, out);
+      return;
+    }
+    if (node.type === "Identifier") out.add(node.name);
+    for (const k in node) {
+      if (k === "type" || k === "__qname" || k === "__isMethod") continue;
+      collectNames(node[k], out);
+    }
+  }
+  // Ang mga slots na kailangang gawing CELL (kasi na-capture ng closure).
+  // scope.__cells = Set ng slot numbers na cell.
+  function markCell(name) {
+    const slot = slotFor(name);
+    if (!scope.__cells) scope.__cells = new Set();
+    scope.__cells.add(slot);
+    return slot;
+  }
+  function isCell(name) {
+    return (
+      scope.__cells &&
+      scope[name] !== undefined &&
+      scope.__cells.has(scope[name])
+    );
+  }
+
+  // I-compile ang isang inner function (FunctionExpression) bilang closure.
+  // TAMANG MODEL (Lua paper + Crafting Interpreters): i-compile ang body INLINE
+  // habang tama pa ang enclosing scope — hindi deferred (na sumisira sa scope timing).
+  // May JMP-over para hindi tumakbo ang body bilang inline code.
+  function compileFunctionExpr(node) {
+    // Alamin kung anong outer-scope names ang ginagamit sa loob
+    const used = new Set();
+    collectNames(node.body, used);
+    const outerScope = scope;
+    const captures = []; // { name, outerSlot }
+    for (const name of used) {
+      // HUWAG i-capture ang named functions — sila ay by-address (CLOSURE [addr]),
+      // hindi cells. Ang pag-capture sa kanila ang sanhi ng NEWCELL-bago-CALL bug.
+      if (functions[name]) continue;
+      if (
+        outerScope[name] !== undefined &&
+        typeof outerScope[name] === "number"
+      ) {
+        if (!outerScope.__cells) outerScope.__cells = new Set();
+        outerScope.__cells.add(outerScope[name]);
+        captures.push({ name, outerSlot: outerScope[name] });
+      }
+    }
+    // Emit CLOSURE na tumutukoy sa body address (isusulat pagkatapos i-compile ang body)
+    const closureInstr = emit(OP.CLOSURE, [
+      0,
+      captures.map((c) => c.outerSlot),
+    ]);
+    // JMP para laktawan ang inline body
+    const jmpOver = emit(OP.JMP, 0);
+    const bodyAddr = here();
+    bytecode[closureInstr].arg = [bodyAddr, captures.map((c) => c.outerSlot)];
+
+    // I-compile ang body sa BAGONG scope (captures = upvalues by order)
+    const savedScope = scope,
+      savedNextSlot = nextSlot,
+      savedVararg = varargSlot;
+    scope = {};
+    nextSlot = 0;
+    varargSlot = 0;
+    scope.__upvals = {};
+    captures.forEach((c, i) => {
+      scope.__upvals[c.name] = i;
+    });
+    for (const p of node.parameters) {
+      if (p.type === "VarargLiteral") varargSlot = nextSlot;
+      else slotFor(p.name);
+    }
+    compileBlock(node.body);
+    emit(OP.PUSH, 0);
+    emit(OP.RETURN);
+    // ibalik ang enclosing scope
+    scope = savedScope;
+    nextSlot = savedNextSlot;
+    varargSlot = savedVararg;
+    patch(jmpOver, here());
+  }
+
   function compileExpr(node) {
     if (node.type === "NumericLiteral") {
       emit(OP.PUSH, node.value);
@@ -159,10 +256,17 @@ function compile(source) {
       if (str === null || str === undefined) str = node.raw.slice(1, -1);
       emit(OP.PUSHSTR, encodeString(str));
     } else if (node.type === "Identifier") {
-      const slot = scope[node.name];
-      if (slot === undefined)
-        throw new Error("hindi pa naka-declare: " + node.name);
-      emit(OP.LOAD, slot);
+      // Upvalue? (na-capture mula sa outer scope ng closure)
+      if (scope.__upvals && scope.__upvals[node.name] !== undefined) {
+        emit(OP.LOADUP, scope.__upvals[node.name]);
+      } else {
+        const slot = scope[node.name];
+        if (slot === undefined)
+          throw new Error("hindi pa naka-declare: " + node.name);
+        // Cell? (na-capture ng inner closure) -> LOADCELL
+        if (scope.__cells && scope.__cells.has(slot)) emit(OP.LOADCELL, slot);
+        else emit(OP.LOAD, slot);
+      }
     } else if (node.type === "BinaryExpression") {
       compileExpr(node.left);
       compileExpr(node.right);
@@ -228,6 +332,13 @@ function compile(source) {
         throw new Error(
           "hindi sinusuportahan ang unary operator: " + node.operator,
         );
+    } else if (node.type === "FunctionDeclaration" && !node.identifier) {
+      // Anonymous function / closure — HINDI PA sinusuportahan nang matatag.
+      // Sa halip na mag-emit ng sirang bytecode, mag-warning at mag-push ng 0.
+      console.warn(
+        "[Luripe] babala: nilaktawan ang closure (function() ... end) — hindi pa suportado.",
+      );
+      emit(OP.PUSH, 0);
     } else throw new Error("hindi sinusuportahan ang expression: " + node.type);
   }
 
@@ -249,14 +360,12 @@ function compile(source) {
       return;
     }
     // Method call na may colon: d:speak(x)  ->  speak(d, x), self=d
-    // luaparse: node.base = MemberExpression na may indexer ":"
     if (
       node.base &&
       node.base.type === "MemberExpression" &&
       node.base.indexer === ":"
     ) {
-      const methodKey = node.base.identifier.name; // "speak"
-      // Hanapin ang function na nagtatapos sa ".speak" (hal. "Dog.speak")
+      const methodKey = node.base.identifier.name;
       let fn = null;
       for (const qname in functions) {
         if (qname.endsWith("." + methodKey)) {
@@ -265,12 +374,12 @@ function compile(source) {
         }
       }
       if (!fn) throw new Error("hindi kilalang method: " + methodKey);
-      compileExpr(node.base.base); // self (ang object)
-      for (const a of node.arguments) compileExpr(a); // ibang args
+      compileExpr(node.base.base); // self
+      for (const a of node.arguments) compileExpr(a);
       emit(OP.CALL, [fn.addr, node.arguments.length + 1]); // +1 para sa self
       return;
     }
-    // Qualified call: Dog.new(x)  ->  functions["Dog.new"]
+    // Qualified call: Dog.new(x)
     if (
       node.base &&
       node.base.type === "MemberExpression" &&
@@ -293,8 +402,17 @@ function compile(source) {
 
   function compileAssignTarget(target, valueEmitter) {
     if (target.type === "Identifier") {
-      valueEmitter();
-      emit(OP.STORE, slotFor(target.name));
+      // Upvalue? -> STOREUP
+      if (scope.__upvals && scope.__upvals[target.name] !== undefined) {
+        valueEmitter();
+        emit(OP.STOREUP, scope.__upvals[target.name]);
+      } else {
+        const slot = slotFor(target.name);
+        valueEmitter();
+        // Cell? (na-capture ng inner closure) -> STORECELL
+        if (scope.__cells && scope.__cells.has(slot)) emit(OP.STORECELL, slot);
+        else emit(OP.STORE, slot);
+      }
     } else if (target.type === "IndexExpression") {
       compileExpr(target.base);
       compileExpr(target.index);
@@ -517,6 +635,8 @@ function compile(source) {
   pushScope();
   compileBlock(mainNodes);
   emit(OP.HALT);
+
+  // (Ang closures ay ni-compile na INLINE sa compileFunctionExpr — walang deferred pass.)
 
   return { OP, bytecode };
 }

@@ -1,18 +1,33 @@
-local function stats(nums)
-  local total = 0
-  local biggest = nums[1]
-  for i = 1, #nums do
-    total = total + nums[i]
-    biggest = math.max(biggest, nums[i])
-  end
-  return total, biggest
+-- input.lua  —  Luripe stable test (walang closures)
+-- Gumagamit ng: local function, tables, table.insert, generic for (ipairs),
+-- string concat, built-ins (math.max), multiple return, methods.
+
+local function double(n)
+  return n * 2
 end
 
-local data = {}
-table.insert(data, 4)
-table.insert(data, 9)
-table.insert(data, 2)
+local function minmax(a, b)
+  if a < b then
+    return a, b
+  else
+    return b, a
+  end
+end
 
-local sum, max = stats(data)
-print(string.format("Sum=%d Max=%d", sum, max))
-print("Sqrt of sum: " .. math.floor(math.sqrt(sum)))
+local nums = {}
+table.insert(nums, 5)
+table.insert(nums, 10)
+table.insert(nums, 15)
+
+local total = 0
+for i, v in ipairs(nums) do
+  local d = double(v)
+  print("Item " .. i .. ": " .. v .. " -> " .. d)
+  total = total + d
+end
+
+print("Total (doubled): " .. total)
+
+local lo, hi = minmax(8, 3)
+print("Min: " .. lo .. " Max: " .. hi)
+print("Biggest in list: " .. math.max(nums[1], nums[3]))

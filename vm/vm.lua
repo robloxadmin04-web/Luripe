@@ -67,6 +67,7 @@ local function run(program, OP, expectedChecksum)
   local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end
 
   local frame = {}
+  local upvals = {}          -- BAGO: upvalues ng kasalukuyang closure
   local callStack, csTop = {}, 0
   local ip = 1
 
@@ -126,7 +127,7 @@ local function run(program, OP, expectedChecksum)
       ip = caller.retIp
       goto continue
 
-    elseif op == OP.RETURNN then                    -- BAGO: return n values
+    elseif op == OP.RETURNN then                    -- return n values
       local n = arg
       local vals = {}
       for k = n, 1, -1 do vals[k] = pop() end
