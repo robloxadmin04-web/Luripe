@@ -224,6 +224,15 @@
         color: var(--text-faint);
         padding-left: 2px;
       }
+      .dbg-toggle { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: linear-gradient(180deg, var(--panel-2), var(--panel)); }
+      .dbg-toggle:hover { border-color: var(--border-strong); background: var(--panel-hover); }
+      .dbg-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+      .dbg-box { width: 20px; height: 20px; border-radius: 6px; border: 1px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.15s, border-color 0.15s; }
+      .dbg-box svg { width: 14px; height: 14px; color: #0a0a0a; opacity: 0; }
+      .dbg-toggle input:checked + .dbg-box { background: var(--white); border-color: var(--white); }
+      .dbg-toggle input:checked + .dbg-box svg { opacity: 1; }
+      .dbg-lbl { font-size: 13px; font-weight: 600; color: var(--text-dim); }
+      .dbg-toggle input:checked ~ .dbg-lbl { color: var(--white); }
 
       .icon-btn, button.primary, button.secondary, select, input[type="password"] {
         transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
@@ -541,6 +550,15 @@ end</textarea>
             <svg class="lead" viewBox="0 0 24 24" fill="none"><path d="M7 11V8a5 5 0 0110 0v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" stroke-width="1.8"/></svg>
             <input id="aiKey" type="password" placeholder="Your AI API key" />
           </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Debug</span>
+          <label class="dbg-toggle" title="Injects [Luripe] print/error messages into the output so you can see silent failures in the executor console">
+            <input id="dbg" type="checkbox" />
+            <span class="dbg-box"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="dbg-lbl">Verbose console</span>
+          </label>
         </div>
 
         <span id="status">Ready.</span>
@@ -1321,7 +1339,7 @@ end</textarea>
       //   * anti-tamper length checksum
       //   * junk/decoy locals + opaque predicates
       //   * scrambled runtime names
-      function wrapperBundle(src) {
+      function wrapperBundle(src, DBG) {
         // UTF-8 encode so any characters survive the byte pipeline.
         const bytes = [];
         for (const ch of src) {
@@ -1386,11 +1404,16 @@ end</textarea>
           "local " + D + "=table.concat(" + C + ");" +
           J(2) +
           "local _ls=loadstring or load;" +
+          (DBG ? "print('[Luripe] decoded '..tostring(#" + D + ")..' chars, loadstring type: '..type(_ls));" : "") +
           "if type(_ls)~='function' then warn('Luripe: loadstring/load not available - Wrapper mode needs an executor that allows loadstring') return end;" +
           "local " + FN + ",_err=_ls(" + D + ");" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)..' (loadstring may be disabled in this environment)') return end;" +
+          (DBG ? "print('[Luripe] compiled OK, executing...');" : "") +
           "local _ok,_e2=pcall(" + FN + ");" +
-          "if not _ok then warn('Luripe: runtime error - '..tostring(_e2)) end";
+          (DBG
+            ? "if _ok then print('[Luripe] finished OK') else warn('[Luripe] RUNTIME ERROR: '..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
+            : "if not _ok then warn('Luripe: runtime error - '..tostring(_e2)) end") +
+          ";";
         return loader;
       }
 
@@ -1425,6 +1448,8 @@ end</textarea>
         const outEl = document.getElementById("output");
         if (!src.trim()) { setStatus("No input to obfuscate.", "err"); return; }
         const mode = pickMode();
+        const dbgEl = document.getElementById("dbg");
+        const DBG = !!(dbgEl && dbgEl.checked);
         if (mode === "raw") {
           outEl.value = rawBundle(src);
           setStatus("Raw mode - no protection, runs as-is via executor.", "ok");
@@ -1433,8 +1458,10 @@ end</textarea>
         if (mode === "wrapper") {
           try {
             setStatus("Obfuscating (wrapper mode)...");
-            outEl.value = wrapperBundle(src);
-            setStatus("Protected in Wrapper mode - this script uses Roblox userdata (Color3/UDim2/Enum/etc), so VM would not run. Wrapper runs 100%.", "ok");
+            outEl.value = wrapperBundle(src, DBG);
+            setStatus(DBG
+              ? "Protected in Wrapper mode (DEBUG ON) - run it and read the [Luripe] messages in your executor console."
+              : "Protected in Wrapper mode - this script uses Roblox userdata (Color3/UDim2/Enum/etc), so VM would not run. Wrapper runs 100%.", "ok");
           } catch (e) { outEl.value = ""; setStatus(e.message, "err"); }
           return;
         }
@@ -1448,7 +1475,7 @@ end</textarea>
         } catch (e) {
           // VM couldn't handle it -> fall back to wrapper so the script still works.
           try {
-            outEl.value = wrapperBundle(src);
+            outEl.value = wrapperBundle(src, DBG);
             setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead.", "ok");
           } catch (e2) {
             outEl.value = "";
@@ -1534,10 +1561,14 @@ end</textarea>
           "Analyze the following Luau script. Return STRICT JSON only, no markdown, with keys: " +
           "{\"verdict\":\"VM_SAFE\"|\"RISKY\"|\"NOT_VM_SAFE\", " +
           "\"recommendedMode\":\"VM\"|\"WRAPPER\", " +
-          "\"unsupported\":[specific unsupported constructs found], " +
+          "\"unsupported\":[{\"construct\":\"name\",\"line\":number,\"snippet\":\"the code\"}], " +
+          "\"runtimeRisks\":[short notes on what could FAIL SILENTLY at runtime even in Wrapper mode, e.g. loadstring disabled, executor-only globals, missing services], " +
           "\"reasons\":[short bullet reasons], " +
-          "\"summary\":\"one-sentence: which mode and why it is the strongest that still runs\"}.\n\n" +
-          "SCRIPT:\n" + src.slice(0, 12000);
+          "\"summary\":\"one-sentence: which mode and why it is the strongest that still runs\"}. " +
+          "For each unsupported construct include the 1-based LINE NUMBER and the exact snippet so the user can find it fast. " +
+          "In runtimeRisks, call out anything that would make the script run with NO output and NO error (silent failure).\n\n" +
+          "SCRIPT (lines are 1-based):\n" +
+          src.split("\n").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\n").slice(0, 14000);
 
         try {
           let raw;
