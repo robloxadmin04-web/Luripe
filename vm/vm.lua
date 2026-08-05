@@ -1,21 +1,38 @@
 --[[
-  vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)
-  === STEP 11: dinagdagan ng GENERIC FOR support (ipairs/pairs) + TLEN ===
+  vm.lua  â€”  Luripe: ang runtime virtual machine (Lua-in-Lua)
+  === ROLLING CIPHER + CONSTANT POOL edition ===
 
-  Bago:
-    - TLEN   : # ng table (bilang ng elements) -> stack
-    - IPAIRS_KEYS : kinukuha ang lahat ng numeric keys ng table (para sa loop)
-    - Ang generic for (for k,v in ipairs/pairs) ay ginagawang loop ng compiler
-      gamit ang TLEN + GETTABLE.
+  Bago sa bersyon na ito:
+    - Rolling string decode: position- at chain-dependent ang keystream.
+        ks_i = seed ~ (i * PRIME) ~ prev_encoded
+        char = ((e_i ~ ks_i) & 0xFF) - OFFSET ;  prev := e_i
+      Ang unang element ng encoded array ay ang per-string SEED.
+    - LOADK: numeric constants ay galing sa CONSTS pool (encoded din). Walang
+      literal na numero sa bytecode; index na lang ang nakikita.
 
-  Gamitin:  VM.run(program, OPMAP, checksum)
+  Gamitin:  VM.run(program, OPMAP, checksum, CONSTS)
 ]]
 
-local KEY, OFFSET = 0x5A, 7
+local OFFSET, PRIME, CMASK = 7, 167, 0xFF
+
 local function decodeString(encoded)
+  -- encoded[1] = seed ; encoded[2..] = rolling-encrypted bytes
+  local seed = encoded[1]
+  local prev = seed
   local chars = {}
-  for i = 1, #encoded do chars[i] = string.char((encoded[i] ~ KEY) - OFFSET) end
+  for i = 2, #encoded do
+    local e = encoded[i]
+    local ks = (seed ~ ((i - 1) * PRIME) ~ prev) & CMASK
+    local c = ((e ~ ks) & CMASK) - OFFSET
+    if c < 0 then c = c + 256 end
+    chars[i - 1] = string.char(c & CMASK)
+    prev = e
+  end
   return table.concat(chars)
+end
+
+local function decodeNumber(encoded)
+  return tonumber(decodeString(encoded))
 end
 
 local BUILTINS = {
@@ -31,11 +48,10 @@ local BUILTINS = {
   [10] = function(a) return tostring(a[1]) end,
   [11] = function(a) return tonumber(a[1]) end,
   [12] = function(a) table.insert(a[1], a[2]); return 0 end,
-  -- === BAGO: mas maraming built-ins ===
   [13] = function(a) return math.sqrt(a[1]) end,
   [14] = function(a) return math.random(a[1], a[2]) end,
-  [15] = function(a) return a[1] ^ a[2] end,                     -- math.pow
-  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,    -- string.sub
+  [15] = function(a) return a[1] ^ a[2] end,
+  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,
   [17] = function(a) return string.format(a[1], a[2], a[3], a[4]) end,
   [18] = function(a) return string.reverse(a[1]) end,
   [19] = function(a) return string.byte(a[1], a[2]) end,
@@ -57,9 +73,15 @@ local function checksumOf(program)
   return sum
 end
 
-local function run(program, OP, expectedChecksum)
+local function run(program, OP, expectedChecksum, CONSTS)
   if expectedChecksum ~= nil and checksumOf(program) ~= expectedChecksum then
     error("Luripe: tampering detected")
+  end
+
+  -- I-decode nang maaga ang buong constant pool (once). Index -> number.
+  local K = {}
+  if CONSTS then
+    for i = 1, #CONSTS do K[i - 1] = decodeNumber(CONSTS[i]) end  -- 0-based index mula sa compiler
   end
 
   local stack, sp = {}, 0
@@ -67,7 +89,7 @@ local function run(program, OP, expectedChecksum)
   local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end
 
   local frame = {}
-  local upvals = {}          -- BAGO: upvalues ng kasalukuyang closure
+  local upvals = {}
   local callStack, csTop = {}, 0
   local ip = 1
 
@@ -76,6 +98,7 @@ local function run(program, OP, expectedChecksum)
     local op, arg = inst[1], inst[2]
 
     if op == OP.PUSH then push(arg)
+    elseif op == OP.LOADK then push(K[arg])          -- BAGO: numeric constant mula sa pool
     elseif op == OP.POP then pop()
     elseif op == OP.ADD then local b = pop(); local a = pop(); push(a + b)
     elseif op == OP.SUB then local b = pop(); local a = pop(); push(a - b)
@@ -99,8 +122,8 @@ local function run(program, OP, expectedChecksum)
     elseif op == OP.NEWTABLE then push({})
     elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v
     elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])
-    elseif op == OP.TLEN then local t = pop(); push(#t)              -- BAGO: #table
-    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)  -- BAGO: not x
+    elseif op == OP.TLEN then local t = pop(); push(#t)
+    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)
 
     elseif op == OP.BUILTIN then
       local id, argc = arg[1], arg[2]
@@ -127,7 +150,7 @@ local function run(program, OP, expectedChecksum)
       ip = caller.retIp
       goto continue
 
-    elseif op == OP.RETURNN then                    -- return n values
+    elseif op == OP.RETURNN then
       local n = arg
       local vals = {}
       for k = n, 1, -1 do vals[k] = pop() end
@@ -136,18 +159,18 @@ local function run(program, OP, expectedChecksum)
       csTop = csTop - 1
       frame = caller.frame
       for k = 1, n do push(vals[k]) end
-      push(n)                                        -- count sa top
+      push(n)
       ip = caller.retIp
       goto continue
 
-    elseif op == OP.STOREMULTI then                 -- BAGO: assign n return values sa slots
+    elseif op == OP.STOREMULTI then
       local slots = arg
       local n = pop()
       local vals = {}
       for k = n, 1, -1 do vals[k] = pop() end
       for k = 1, #slots do frame[slots[k]] = vals[k] end
 
-    elseif op == OP.VARARG then                      -- BAGO: {...} -> table ng lahat ng extra args
+    elseif op == OP.VARARG then
       local startSlot = arg
       local t = {}
       local n = 0
