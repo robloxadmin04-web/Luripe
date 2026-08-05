@@ -1,13 +1,16 @@
-//  compile.js  —  Luripe compiler
-//  === STEP 10: CONCAT + BUILT-INS + ANTI-TAMPER (huling hakbang) ===
+//  ⚠️ LEGACY / LEARNING VERSION — NOT the main tool.
 //
-//  Bago:
-//    - String concatenation:  a .. b
-//    - Built-in functions: math.floor, math.max, string.upper, table.insert, atbp.
-//    - Anti-tamper checksum: kino-compute at isinasama sa output.
+//  This file is an early, step-by-step teaching version of the compiler.
+//  It is OUT OF SYNC with the VM (missing opcodes, fewer builtins, hardcoded
+//  source) and is kept only for reference / learning history.
 //
-//  Patakbuhin:  node compile.js
-//  Kailangan:   npm install luaparse
+//  👉 The real, up-to-date tool is:  compiler/luripe.js
+//     - reads from input.lua / a CLI arg
+//     - full opcode set + builtins, synced with vm/vm.lua
+//     - all obfuscation layers
+//
+//  Do not use this file for actual obfuscation. See README.md.
+//  ---------------------------------------------------------------------------
 
 const luaparse = require("luaparse");
 
