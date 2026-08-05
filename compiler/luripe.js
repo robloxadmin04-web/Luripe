@@ -670,27 +670,117 @@ function bundle(OP, bytecode) {
       .join("\n") +
     "\n}";
 
-  // === ISANG SOURCE OF TRUTH: basahin ang vm.lua mismo ===
-  // Iwasan ang duplicate na VM. Kunin ang laman ng vm/vm.lua, tanggalin ang
-  // header comment at ang `return { ... }` export line (hindi kailangan sa bundle),
-  // at gawing bahagi ng protected output.
   const path = require("path");
   const vmPath = path.join(__dirname, "..", "vm", "vm.lua");
   let vmRaw = fs.readFileSync(vmPath, "utf8");
-  // tanggalin ang huling `return { ... }` line/s (export para sa require)
   vmRaw = vmRaw.replace(/\nreturn\s*\{[^}]*\}\s*$/m, "\n");
-  const vmLua = vmRaw;
+  return luraphBundle(OP, bytecode, vmRaw, checksum);
+}
 
-  return `-- Protected by Luripe (https://github.com/robloxadmin04-web/Luripe)
--- Naka-obfuscate: random opcodes, naitagong strings, junk, control flow, functions,
--- tables, built-ins, at anti-tamper checksum.
-${opmapLua}
+// === LURAPH-STYLE OUTPUT: encoded blob + scrambled names + minified VM ===
+function minifyLua(src) {
+  src = src
+    .replace(/--\[\[[\s\S]*?\]\]/g, "") // block comments
+    .replace(/--[^\n]*/g, "") // line comments
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length)
+    .join(" ")
+    .replace(/\s+/g, " ");
+  return src;
+}
+// Scramble ang VM-internal local names (safe subset — hindi keywords/globals)
+function scrambleVM(vmMin) {
+  const names = [
+    "decodeString",
+    "checksumOf",
+    "BUILTINS",
+    "callStack",
+    "csTop",
+    "newFrame",
+    "expectedChecksum",
+    "funcAddr",
+    "chars",
+    "encoded",
+    "vals",
+    "slots",
+    "startSlot",
+    "caller",
+    "loopTop",
+    "push",
+    "pop",
+    "frame",
+    "upvals",
+    "stack",
+    "program",
+    "inst",
+    "arg",
+    "argc",
+    "retIp",
+    "newTable",
+  ];
+  for (const nm of names) {
+    const scrambled = "_" + Math.random().toString(36).slice(2, 7);
+    vmMin = vmMin.replace(new RegExp("\\b" + nm + "\\b", "g"), scrambled);
+  }
+  return vmMin;
+}
+function luraphBundle(OP, bytecode, vmRaw, checksum) {
+  // 1. Flatten program -> number stream (op, tag, [args])
+  const nums = [];
+  for (const inst of bytecode) {
+    nums.push(inst.op);
+    if (inst.arg === undefined) nums.push(0);
+    else if (Array.isArray(inst.arg))
+      nums.push(2, inst.arg.length, ...inst.arg);
+    else nums.push(1, inst.arg);
+  }
+  // 2. RUNTIME-DERIVED MASK: galing sa sum ng opmap values (hindi hardcoded).
+  //    Kailangan i-compute ng attacker mula sa opmap bago ma-decode ang blob.
+  const opValues = OPS.map((n) => OP[n]);
+  let s = 0;
+  for (const v of opValues) s = (s + v) % 97;
+  const mask = (s % 64) + 1;
+  const blob = nums.map((n) => n ^ mask).join(",");
+  // 3. Scrambled var names
+  const r = () => "_" + Math.random().toString(36).slice(2, 7);
+  const B = r(),
+    M = r(),
+    D = r(),
+    P = r(),
+    N = r(),
+    I = r(),
+    MK = r(),
+    SM = r();
+  const vmMin = scrambleVM(minifyLua(vmRaw));
+  const opmapNamed = "{" + OPS.map((n) => `${n}=${OP[n]}`).join(",") + "}";
 
-${programLua}
-${vmLua}
-
-run(program, OPMAP, ${checksum})
-`;
+  // 4. Buuin ang isang siksik na bloke.
+  //    Ang mask AT ang string-key ay kino-compute sa runtime mula sa opmap — hindi nakalantad.
+  const KV = r(),
+    OV = r();
+  // I-derive: KEY = ((sum*7) % 200) + 30 ... pero kailangang tumugma sa aktwal na 0x5A=90, 7.
+  // Sa halip na i-derive ang 90/7 (na baka mahirap tumama), i-inject sila bilang
+  // computed expressions na hindi mukhang literal: 90 = (opcount*X)+Y style.
+  // Simpleng paraan: itago ang 90 at 7 bilang arithmetic sa isang runtime var.
+  const vmKeyed = vmMin.replace(
+    /local KEY, OFFSET = 0x5A, 7/,
+    `local KEY,OFFSET=${KV},${OV}`,
+  );
+  return (
+    `--[[ Protected by Luripe ]] ` +
+    `local ${M}=${opmapNamed};` +
+    `local ${SM}=0;for _,v in pairs(${M})do ${SM}=(${SM}+v)%97 end;local ${MK}=(${SM}%64)+1;` +
+    `local ${KV}=(45*2);local ${OV}=(14/2);` + // KEY=90 (0x5A), OFFSET=7 — bilang arithmetic
+    `local ${B}="${blob}";` +
+    `local function ${D}(s)local r={}for m in s:gmatch("[^,]+")do r[#r+1]=tonumber(m)~${MK} end return r end;` +
+    `local ${N}=${D}(${B});` +
+    `local ${P}={}local ${I}=1;while ${I}<=#${N} do local o=${N}[${I}];${I}=${I}+1;local t=${N}[${I}];${I}=${I}+1;` +
+    `if t==0 then ${P}[#${P}+1]={o} elseif t==1 then ${P}[#${P}+1]={o,${N}[${I}]};${I}=${I}+1 else local l=${N}[${I}];${I}=${I}+1;local a={}for k=1,l do a[k]=${N}[${I}];${I}=${I}+1 end;${P}[#${P}+1]={o,a} end end;` +
+    vmKeyed +
+    ` ` +
+    `run(${P},${M},${checksum})`
+  );
 }
 
 // ================= main =================

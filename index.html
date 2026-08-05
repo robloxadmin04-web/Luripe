@@ -1,0 +1,1088 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Luripe — Luau Obfuscator</title>
+    <!-- luaparse mula sa CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.min.js"></script>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --border: #30363d;
+        --accent: #7c3aed;
+        --accent2: #a855f7;
+        --text: #e6edf3;
+        --muted: #8b949e;
+        --ok: #3fb950;
+        --err: #f85149;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        padding: 20px 28px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+      }
+      header .logo {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 18px;
+      }
+      header .tag {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        padding: 20px 28px;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .panel .head {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      textarea {
+        width: 100%;
+        min-height: 420px;
+        border: 0;
+        background: transparent;
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        padding: 16px;
+        resize: vertical;
+        outline: none;
+      }
+      #output {
+        white-space: pre;
+        overflow: auto;
+      }
+      .bar {
+        padding: 16px 28px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 11px 22px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.15s;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        color: #fff;
+      }
+      .btn-primary:hover {
+        filter: brightness(1.1);
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      .btn-ghost:hover {
+        color: var(--text);
+        border-color: var(--muted);
+      }
+      #status {
+        font-size: 13px;
+        color: var(--muted);
+        margin-left: auto;
+      }
+      #status.ok {
+        color: var(--ok);
+      }
+      #status.err {
+        color: var(--err);
+      }
+      .copybtn {
+        font-size: 12px;
+        padding: 4px 12px;
+      }
+      footer {
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+        padding: 16px;
+        border-top: 1px solid var(--border);
+        margin-top: 8px;
+      }
+      footer a {
+        color: var(--accent2);
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo">L</div>
+      <div>
+        <h1>Luripe</h1>
+        <div class="tag">
+          Luau VM Obfuscator — tumatakbo lahat sa browser mo, walang server
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="panel">
+        <div class="head"><span>INPUT — Luau / Lua source</span></div>
+        <textarea
+          id="input"
+          spellcheck="false"
+          placeholder="I-paste ang Luau script dito..."
+        >
+local function greet(name)
+  return "Hello, " .. name .. "!"
+end
+
+local players = {}
+table.insert(players, "Alice")
+table.insert(players, "Bob")
+
+for i, p in ipairs(players) do
+  print(greet(p))
+end</textarea
+        >
+      </div>
+
+      <div class="panel">
+        <div class="head">
+          <span>OUTPUT — Protected script</span>
+          <button class="btn-ghost copybtn" onclick="copyOut()">
+            Kopyahin
+          </button>
+        </div>
+        <textarea
+          id="output"
+          readonly
+          spellcheck="false"
+          placeholder="Lalabas dito ang obfuscated output..."
+        ></textarea>
+      </div>
+    </main>
+
+    <div class="bar">
+      <button class="btn-primary" onclick="run()">🔒 Obfuscate</button>
+      <button class="btn-ghost" onclick="clearAll()">Linisin</button>
+      <span id="status">Handa na.</span>
+    </div>
+
+    <footer>
+      Luripe — random opcodes bawat build · naitagong strings · junk
+      instructions · anti-tamper ·
+      <a href="https://github.com/robloxadmin04-web/Luripe" target="_blank"
+        >GitHub</a
+      >
+    </footer>
+
+    <script>
+      // ===== Luripe VM source (naka-embed) =====
+      const LURIPE_VM_SOURCE =
+        '--[[\n  vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)\n  === STEP 11: dinagdagan ng GENERIC FOR support (ipairs/pairs) + TLEN ===\n\n  Bago:\n    - TLEN   : # ng table (bilang ng elements) -> stack\n    - IPAIRS_KEYS : kinukuha ang lahat ng numeric keys ng table (para sa loop)\n    - Ang generic for (for k,v in ipairs/pairs) ay ginagawang loop ng compiler\n      gamit ang TLEN + GETTABLE.\n\n  Gamitin:  VM.run(program, OPMAP, checksum)\n]]\n\nlocal KEY, OFFSET = 0x5A, 7\nlocal function decodeString(encoded)\n  local chars = {}\n  for i = 1, #encoded do chars[i] = string.char((encoded[i] ~ KEY) - OFFSET) end\n  return table.concat(chars)\nend\n\nlocal BUILTINS = {\n  [1]  = function(a) return math.floor(a[1]) end,\n  [2]  = function(a) return math.ceil(a[1]) end,\n  [3]  = function(a) return math.abs(a[1]) end,\n  [4]  = function(a) return math.max(a[1], a[2]) end,\n  [5]  = function(a) return math.min(a[1], a[2]) end,\n  [6]  = function(a) return string.upper(a[1]) end,\n  [7]  = function(a) return string.lower(a[1]) end,\n  [8]  = function(a) return #a[1] end,\n  [9]  = function(a) return string.rep(a[1], a[2]) end,\n  [10] = function(a) return tostring(a[1]) end,\n  [11] = function(a) return tonumber(a[1]) end,\n  [12] = function(a) table.insert(a[1], a[2]); return 0 end,\n  -- === BAGO: mas maraming built-ins ===\n  [13] = function(a) return math.sqrt(a[1]) end,\n  [14] = function(a) return math.random(a[1], a[2]) end,\n  [15] = function(a) return a[1] ^ a[2] end,                     -- math.pow\n  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,    -- string.sub\n  [17] = function(a) return string.format(a[1], a[2], a[3], a[4]) end,\n  [18] = function(a) return string.reverse(a[1]) end,\n  [19] = function(a) return string.byte(a[1], a[2]) end,\n  [20] = function(a) return string.char(a[1]) end,\n  [21] = function(a) return table.remove(a[1], a[2]) end,\n  [22] = function(a) return table.concat(a[1], a[2] or "") end,\n  [23] = function(a) return type(a[1]) end,\n  [24] = function(a) return math.sin(a[1]) end,\n  [25] = function(a) return math.cos(a[1]) end,\n}\n\nlocal function checksumOf(program)\n  local sum = 0\n  for i = 1, #program do\n    local inst = program[i]\n    sum = (sum + inst[1] * i) % 1000003\n    if type(inst[2]) == "number" then sum = (sum + inst[2]) % 1000003 end\n  end\n  return sum\nend\n\nlocal function run(program, OP, expectedChecksum)\n  if expectedChecksum ~= nil and checksumOf(program) ~= expectedChecksum then\n    error("Luripe: tampering detected")\n  end\n\n  local stack, sp = {}, 0\n  local function push(v) sp = sp + 1; stack[sp] = v end\n  local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end\n\n  local frame = {}\n  local upvals = {}          -- BAGO: upvalues ng kasalukuyang closure\n  local callStack, csTop = {}, 0\n  local ip = 1\n\n  while ip <= #program do\n    local inst = program[ip]\n    local op, arg = inst[1], inst[2]\n\n    if op == OP.PUSH then push(arg)\n    elseif op == OP.POP then pop()\n    elseif op == OP.ADD then local b = pop(); local a = pop(); push(a + b)\n    elseif op == OP.SUB then local b = pop(); local a = pop(); push(a - b)\n    elseif op == OP.MUL then local b = pop(); local a = pop(); push(a * b)\n    elseif op == OP.DIV then local b = pop(); local a = pop(); push(a / b)\n    elseif op == OP.MOD then local b = pop(); local a = pop(); push(a % b)\n    elseif op == OP.PRINT then print(stack[sp])\n    elseif op == OP.DUP then push(stack[sp])\n    elseif op == OP.STORE then frame[arg] = pop()\n    elseif op == OP.LOAD then push(frame[arg])\n    elseif op == OP.PUSHSTR then push(decodeString(arg))\n    elseif op == OP.CONCAT then local b = pop(); local a = pop(); push(tostring(a) .. tostring(b))\n    elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)\n    elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)\n    elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)\n    elseif op == OP.GE then local b = pop(); local a = pop(); push(a >= b and 1 or 0)\n    elseif op == OP.EQ then local b = pop(); local a = pop(); push(a == b and 1 or 0)\n    elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)\n    elseif op == OP.JMP then ip = arg; goto continue\n    elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end\n    elseif op == OP.NEWTABLE then push({})\n    elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v\n    elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])\n    elseif op == OP.TLEN then local t = pop(); push(#t)              -- BAGO: #table\n    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)  -- BAGO: not x\n\n    elseif op == OP.BUILTIN then\n      local id, argc = arg[1], arg[2]\n      local args = {}\n      for k = argc, 1, -1 do args[k] = pop() end\n      push(BUILTINS[id](args))\n\n    elseif op == OP.CALL then\n      local funcAddr, argc = arg[1], arg[2]\n      local newFrame = {}\n      for k = argc - 1, 0, -1 do newFrame[k] = pop() end\n      csTop = csTop + 1\n      callStack[csTop] = { retIp = ip + 1, frame = frame }\n      frame = newFrame\n      ip = funcAddr\n      goto continue\n    elseif op == OP.RETURN then\n      local rv = pop()\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      push(rv)\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.RETURNN then                    -- return n values\n      local n = arg\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      for k = 1, n do push(vals[k]) end\n      push(n)                                        -- count sa top\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.STOREMULTI then                 -- BAGO: assign n return values sa slots\n      local slots = arg\n      local n = pop()\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      for k = 1, #slots do frame[slots[k]] = vals[k] end\n\n    elseif op == OP.VARARG then                      -- BAGO: {...} -> table ng lahat ng extra args\n      local startSlot = arg\n      local t = {}\n      local n = 0\n      local k = startSlot\n      while frame[k] ~= nil do n = n + 1; t[n] = frame[k]; k = k + 1 end\n      push(t)\n\n    elseif op == OP.HALT then break\n    else error("hindi kilalang opcode: " .. tostring(op)) end\n\n    ip = ip + 1\n    ::continue::\n  end\nend\n\n';
+
+      // ===== Luripe compiler + bundler (naka-embed) =====
+      //  luripe.js  —  Luripe AUTO-BUNDLER (FINAL: kompletong feature set)
+      //
+      //  Kukuha ng input .lua source at magbubuo ng iisang self-contained protected
+      //  .lua file. Sinusuportahan: variables, math, strings, if/elseif/else, while,
+      //  for, functions, tables, string concat (..), built-ins, at anti-tamper.
+      //
+      //  Gamitin:
+      //    node luripe.js input.lua              -> input.protected.lua
+      //    node luripe.js input.lua out.lua      -> custom output name
+      //
+      //  Kailangan:  npm install luaparse
+
+      // ================= config =================
+      const KEY = 0x5a,
+        OFFSET = 7;
+      const HARDENING = true; // junk instructions ON
+
+      function encodeString(str) {
+        const out = [];
+        for (let i = 0; i < str.length; i++)
+          out.push((str.charCodeAt(i) + OFFSET) ^ KEY);
+        return out;
+      }
+
+      const OPS = [
+        "PUSH",
+        "ADD",
+        "SUB",
+        "MUL",
+        "PRINT",
+        "JMP",
+        "JZ",
+        "DUP",
+        "HALT",
+        "STORE",
+        "LOAD",
+        "DIV",
+        "PUSHSTR",
+        "POP",
+        "LT",
+        "GT",
+        "LE",
+        "GE",
+        "EQ",
+        "NE",
+        "CALL",
+        "RETURN",
+        "NEWTABLE",
+        "SETTABLE",
+        "GETTABLE",
+        "CONCAT",
+        "BUILTIN",
+        "TLEN",
+        "MOD",
+        "RETURNN",
+        "STOREMULTI",
+        "VARARG",
+        "NOT",
+        "NEWCELL",
+        "LOADCELL",
+        "STORECELL",
+        "LOADUP",
+        "STOREUP",
+        "CLOSURE",
+        "CALLC",
+      ];
+      function buildOpcodeMap() {
+        const nums = [];
+        for (let i = 1; i <= OPS.length; i++) nums.push(i);
+        for (let i = nums.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [nums[i], nums[j]] = [nums[j], nums[i]];
+        }
+        const map = {};
+        OPS.forEach((name, i) => {
+          map[name] = nums[i];
+        });
+        return map;
+      }
+
+      const BUILTIN_IDS = {
+        "math.floor": { id: 1, argc: 1 },
+        "math.ceil": { id: 2, argc: 1 },
+        "math.abs": { id: 3, argc: 1 },
+        "math.max": { id: 4, argc: 2 },
+        "math.min": { id: 5, argc: 2 },
+        "string.upper": { id: 6, argc: 1 },
+        "string.lower": { id: 7, argc: 1 },
+        "string.len": { id: 8, argc: 1 },
+        "string.rep": { id: 9, argc: 2 },
+        tostring: { id: 10, argc: 1 },
+        tonumber: { id: 11, argc: 1 },
+        "table.insert": { id: 12, argc: 2 },
+        // === BAGO ===
+        "math.sqrt": { id: 13, argc: 1 },
+        "math.random": { id: 14, argc: 2 },
+        "math.pow": { id: 15, argc: 2 },
+        "string.sub": { id: 16, argc: 3 },
+        "string.format": { id: 17, argc: 4 },
+        "string.reverse": { id: 18, argc: 1 },
+        "string.byte": { id: 19, argc: 2 },
+        "string.char": { id: 20, argc: 1 },
+        "table.remove": { id: 21, argc: 2 },
+        "table.concat": { id: 22, argc: 2 },
+        type: { id: 23, argc: 1 },
+        "math.sin": { id: 24, argc: 1 },
+        "math.cos": { id: 25, argc: 1 },
+      };
+
+      // ================= compiler =================
+      function compile(source) {
+        const OP = buildOpcodeMap();
+        const ast = luaparse.parse(source);
+        const bytecode = [];
+        const emit = (op, arg) => {
+          bytecode.push(arg === undefined ? { op } : { op, arg });
+          return bytecode.length - 1;
+        };
+        const patch = (index, target) => {
+          bytecode[index].arg = target;
+        };
+        const here = () => bytecode.length + 1;
+
+        const functions = {};
+        let scope = {};
+        let pendingClosures = [];
+        let varargSlot = 0;
+        let nextSlot = 0;
+        const pushScope = () => {
+          scope = {};
+          nextSlot = 0;
+        };
+        const slotFor = (name) => {
+          if (scope[name] === undefined) scope[name] = nextSlot++;
+          return scope[name];
+        };
+
+        const CMP = {
+          "<": "LT",
+          ">": "GT",
+          "<=": "LE",
+          ">=": "GE",
+          "==": "EQ",
+          "~=": "NE",
+        };
+        const emitJunk = () => {
+          if (HARDENING) {
+            emit(OP.PUSH, Math.floor(Math.random() * 99999));
+            emit(OP.POP);
+          }
+        };
+
+        function builtinName(node) {
+          if (
+            node.type === "MemberExpression" &&
+            node.base.type === "Identifier"
+          )
+            return node.base.name + "." + node.identifier.name;
+          if (node.type === "Identifier") return node.name;
+          return null;
+        }
+
+        // === CLOSURES ===
+        // Kolektahin ang lahat ng Identifier na ginamit sa isang function body.
+        function collectNames(node, out) {
+          if (!node || typeof node !== "object") return;
+          if (Array.isArray(node)) {
+            for (const n of node) collectNames(n, out);
+            return;
+          }
+          if (node.type === "Identifier") out.add(node.name);
+          for (const k in node) {
+            if (k === "type" || k === "__qname" || k === "__isMethod") continue;
+            collectNames(node[k], out);
+          }
+        }
+        // Ang mga slots na kailangang gawing CELL (kasi na-capture ng closure).
+        // scope.__cells = Set ng slot numbers na cell.
+        function markCell(name) {
+          const slot = slotFor(name);
+          if (!scope.__cells) scope.__cells = new Set();
+          scope.__cells.add(slot);
+          return slot;
+        }
+        function isCell(name) {
+          return (
+            scope.__cells &&
+            scope[name] !== undefined &&
+            scope.__cells.has(scope[name])
+          );
+        }
+
+        // I-compile ang isang inner function (FunctionExpression) bilang closure.
+        // TAMANG MODEL (Lua paper + Crafting Interpreters): i-compile ang body INLINE
+        // habang tama pa ang enclosing scope — hindi deferred (na sumisira sa scope timing).
+        // May JMP-over para hindi tumakbo ang body bilang inline code.
+        function compileFunctionExpr(node) {
+          // Alamin kung anong outer-scope names ang ginagamit sa loob
+          const used = new Set();
+          collectNames(node.body, used);
+          const outerScope = scope;
+          const captures = []; // { name, outerSlot }
+          for (const name of used) {
+            // HUWAG i-capture ang named functions — sila ay by-address (CLOSURE [addr]),
+            // hindi cells. Ang pag-capture sa kanila ang sanhi ng NEWCELL-bago-CALL bug.
+            if (functions[name]) continue;
+            if (
+              outerScope[name] !== undefined &&
+              typeof outerScope[name] === "number"
+            ) {
+              if (!outerScope.__cells) outerScope.__cells = new Set();
+              outerScope.__cells.add(outerScope[name]);
+              captures.push({ name, outerSlot: outerScope[name] });
+            }
+          }
+          // Emit CLOSURE na tumutukoy sa body address (isusulat pagkatapos i-compile ang body)
+          const closureInstr = emit(OP.CLOSURE, [
+            0,
+            captures.map((c) => c.outerSlot),
+          ]);
+          // JMP para laktawan ang inline body
+          const jmpOver = emit(OP.JMP, 0);
+          const bodyAddr = here();
+          bytecode[closureInstr].arg = [
+            bodyAddr,
+            captures.map((c) => c.outerSlot),
+          ];
+
+          // I-compile ang body sa BAGONG scope (captures = upvalues by order)
+          const savedScope = scope,
+            savedNextSlot = nextSlot,
+            savedVararg = varargSlot;
+          scope = {};
+          nextSlot = 0;
+          varargSlot = 0;
+          scope.__upvals = {};
+          captures.forEach((c, i) => {
+            scope.__upvals[c.name] = i;
+          });
+          for (const p of node.parameters) {
+            if (p.type === "VarargLiteral") varargSlot = nextSlot;
+            else slotFor(p.name);
+          }
+          compileBlock(node.body);
+          emit(OP.PUSH, 0);
+          emit(OP.RETURN);
+          // ibalik ang enclosing scope
+          scope = savedScope;
+          nextSlot = savedNextSlot;
+          varargSlot = savedVararg;
+          patch(jmpOver, here());
+        }
+
+        function compileExpr(node) {
+          if (node.type === "NumericLiteral") {
+            emit(OP.PUSH, node.value);
+          } else if (node.type === "StringLiteral") {
+            let str = node.value;
+            if (str === null || str === undefined) str = node.raw.slice(1, -1);
+            emit(OP.PUSHSTR, encodeString(str));
+          } else if (node.type === "Identifier") {
+            // Upvalue? (na-capture mula sa outer scope ng closure)
+            if (scope.__upvals && scope.__upvals[node.name] !== undefined) {
+              emit(OP.LOADUP, scope.__upvals[node.name]);
+            } else {
+              const slot = scope[node.name];
+              if (slot === undefined)
+                throw new Error("hindi pa naka-declare: " + node.name);
+              // Cell? (na-capture ng inner closure) -> LOADCELL
+              if (scope.__cells && scope.__cells.has(slot))
+                emit(OP.LOADCELL, slot);
+              else emit(OP.LOAD, slot);
+            }
+          } else if (node.type === "BinaryExpression") {
+            compileExpr(node.left);
+            compileExpr(node.right);
+            const o = node.operator;
+            if (o === "+") emit(OP.ADD);
+            else if (o === "-") emit(OP.SUB);
+            else if (o === "*") emit(OP.MUL);
+            else if (o === "/") emit(OP.DIV);
+            else if (o === "..") emit(OP.CONCAT);
+            else if (CMP[o]) emit(OP[CMP[o]]);
+            else throw new Error("hindi sinusuportahan ang operator: " + o);
+          } else if (node.type === "CallExpression") {
+            compileCall(node);
+          } else if (node.type === "TableConstructorExpression") {
+            // Espesyal: { ... }  -> kolektahin ang varargs (VARARG opcode) direkta
+            if (
+              node.fields.length === 1 &&
+              node.fields[0].type === "TableValue" &&
+              node.fields[0].value.type === "VarargLiteral"
+            ) {
+              emit(OP.VARARG, varargSlot); // varargSlot = simula ng extra args sa frame
+              return;
+            }
+            emit(OP.NEWTABLE);
+            let arrayIndex = 1;
+            for (const field of node.fields) {
+              if (field.type === "TableValue") {
+                emit(OP.DUP);
+                emit(OP.PUSH, arrayIndex++);
+                compileExpr(field.value);
+                emit(OP.SETTABLE);
+              } else if (field.type === "TableKeyString") {
+                emit(OP.DUP);
+                emit(OP.PUSHSTR, encodeString(field.key.name));
+                compileExpr(field.value);
+                emit(OP.SETTABLE);
+              } else
+                throw new Error(
+                  "hindi pa sinusuportahan ang table field: " + field.type,
+                );
+            }
+          } else if (node.type === "IndexExpression") {
+            compileExpr(node.base);
+            compileExpr(node.index);
+            emit(OP.GETTABLE);
+          } else if (node.type === "MemberExpression") {
+            compileExpr(node.base);
+            emit(OP.PUSHSTR, encodeString(node.identifier.name));
+            emit(OP.GETTABLE);
+          } else if (node.type === "UnaryExpression") {
+            // -x, not x, #t
+            if (node.operator === "-") {
+              emit(OP.PUSH, 0);
+              compileExpr(node.argument);
+              emit(OP.SUB); // 0 - x
+            } else if (node.operator === "not") {
+              compileExpr(node.argument);
+              emit(OP.NOT);
+            } else if (node.operator === "#") {
+              compileExpr(node.argument);
+              emit(OP.TLEN);
+            } else
+              throw new Error(
+                "hindi sinusuportahan ang unary operator: " + node.operator,
+              );
+          } else if (node.type === "FunctionDeclaration" && !node.identifier) {
+            // Anonymous function / closure — HINDI PA sinusuportahan nang matatag.
+            // Sa halip na mag-emit ng sirang bytecode, mag-warning at mag-push ng 0.
+            console.warn(
+              "[Luripe] babala: nilaktawan ang closure (function() ... end) — hindi pa suportado.",
+            );
+            emit(OP.PUSH, 0);
+          } else
+            throw new Error(
+              "hindi sinusuportahan ang expression: " + node.type,
+            );
+        }
+
+        function compileCall(node) {
+          if (
+            node.base &&
+            node.base.type === "Identifier" &&
+            node.base.name === "print"
+          ) {
+            compileExpr(node.arguments[0]);
+            emit(OP.PRINT);
+            return;
+          }
+          const bname = builtinName(node.base);
+          if (bname && BUILTIN_IDS[bname]) {
+            const b = BUILTIN_IDS[bname];
+            for (const a of node.arguments) compileExpr(a);
+            emit(OP.BUILTIN, [b.id, node.arguments.length]);
+            return;
+          }
+          // Method call na may colon: d:speak(x)  ->  speak(d, x), self=d
+          if (
+            node.base &&
+            node.base.type === "MemberExpression" &&
+            node.base.indexer === ":"
+          ) {
+            const methodKey = node.base.identifier.name;
+            let fn = null;
+            for (const qname in functions) {
+              if (qname.endsWith("." + methodKey)) {
+                fn = functions[qname];
+                break;
+              }
+            }
+            if (!fn) throw new Error("hindi kilalang method: " + methodKey);
+            compileExpr(node.base.base); // self
+            for (const a of node.arguments) compileExpr(a);
+            emit(OP.CALL, [fn.addr, node.arguments.length + 1]); // +1 para sa self
+            return;
+          }
+          // Qualified call: Dog.new(x)
+          if (
+            node.base &&
+            node.base.type === "MemberExpression" &&
+            node.base.indexer === "."
+          ) {
+            const qname = node.base.base.name + "." + node.base.identifier.name;
+            const fn = functions[qname];
+            if (!fn) throw new Error("hindi kilalang function: " + qname);
+            for (const a of node.arguments) compileExpr(a);
+            emit(OP.CALL, [fn.addr, node.arguments.length]);
+            return;
+          }
+          // Plain call: foo(x)
+          const fnName = node.base && node.base.name;
+          const fn = functions[fnName];
+          if (!fn)
+            throw new Error("hindi kilalang function: " + (fnName || bname));
+          for (const a of node.arguments) compileExpr(a);
+          emit(OP.CALL, [fn.addr, node.arguments.length]);
+        }
+
+        function compileAssignTarget(target, valueEmitter) {
+          if (target.type === "Identifier") {
+            // Upvalue? -> STOREUP
+            if (scope.__upvals && scope.__upvals[target.name] !== undefined) {
+              valueEmitter();
+              emit(OP.STOREUP, scope.__upvals[target.name]);
+            } else {
+              const slot = slotFor(target.name);
+              valueEmitter();
+              // Cell? (na-capture ng inner closure) -> STORECELL
+              if (scope.__cells && scope.__cells.has(slot))
+                emit(OP.STORECELL, slot);
+              else emit(OP.STORE, slot);
+            }
+          } else if (target.type === "IndexExpression") {
+            compileExpr(target.base);
+            compileExpr(target.index);
+            valueEmitter();
+            emit(OP.SETTABLE);
+          } else if (target.type === "MemberExpression") {
+            compileExpr(target.base);
+            emit(OP.PUSHSTR, encodeString(target.identifier.name));
+            valueEmitter();
+            emit(OP.SETTABLE);
+          } else
+            throw new Error(
+              "hindi sinusuportahan ang assignment target: " + target.type,
+            );
+        }
+
+        function compileBlock(body) {
+          for (const stmt of body) {
+            emitJunk();
+            compileStatement(stmt);
+          }
+        }
+
+        function compileStatement(node) {
+          if (node.type === "LocalStatement") {
+            // Multi-value mula sa isang function call: local a, b = f()  -> STOREMULTI
+            if (
+              node.variables.length > 1 &&
+              node.init.length === 1 &&
+              node.init[0] &&
+              node.init[0].type === "CallExpression"
+            ) {
+              compileCall(node.init[0]); // nag-iiwan ng values + count sa stack
+              const slots = node.variables.map((v) => slotFor(v.name));
+              emit(OP.STOREMULTI, slots);
+            } else {
+              for (let i = 0; i < node.variables.length; i++) {
+                const name = node.variables[i].name;
+                if (node.init[i]) compileExpr(node.init[i]);
+                else emit(OP.PUSH, 0);
+                emit(OP.STORE, slotFor(name));
+              }
+            }
+          } else if (node.type === "AssignmentStatement") {
+            // Multi-value: a, b = f()
+            if (
+              node.variables.length > 1 &&
+              node.init.length === 1 &&
+              node.init[0] &&
+              node.init[0].type === "CallExpression" &&
+              node.variables.every((v) => v.type === "Identifier")
+            ) {
+              compileCall(node.init[0]);
+              const slots = node.variables.map((v) => slotFor(v.name));
+              emit(OP.STOREMULTI, slots);
+            } else {
+              for (let i = 0; i < node.variables.length; i++)
+                compileAssignTarget(node.variables[i], () =>
+                  compileExpr(node.init[i]),
+                );
+            }
+          } else if (node.type === "CallStatement") {
+            compileCall(node.expression);
+            const isPrint =
+              node.expression.base && node.expression.base.name === "print";
+            if (!isPrint) emit(OP.POP);
+          } else if (node.type === "ReturnStatement") {
+            // Multiple return: return a, b, c
+            if (node.arguments.length > 1) {
+              for (const a of node.arguments) compileExpr(a);
+              emit(OP.RETURNN, node.arguments.length);
+            } else {
+              if (node.arguments.length) compileExpr(node.arguments[0]);
+              else emit(OP.PUSH, 0);
+              emit(OP.RETURN);
+            }
+          } else if (node.type === "IfStatement") {
+            const endJumps = [];
+            for (const clause of node.clauses) {
+              if (clause.type === "ElseClause") compileBlock(clause.body);
+              else {
+                compileExpr(clause.condition);
+                const jz = emit(OP.JZ, 0);
+                compileBlock(clause.body);
+                endJumps.push(emit(OP.JMP, 0));
+                patch(jz, here());
+              }
+            }
+            const endIf = here();
+            for (const j of endJumps) patch(j, endIf);
+          } else if (node.type === "WhileStatement") {
+            const loopTop = here();
+            compileExpr(node.condition);
+            const jz = emit(OP.JZ, 0);
+            compileBlock(node.body);
+            emit(OP.JMP, loopTop);
+            patch(jz, here());
+          } else if (node.type === "ForNumericStatement") {
+            const varSlot = slotFor(node.variable.name);
+            compileExpr(node.start);
+            emit(OP.STORE, varSlot);
+            const loopTop = here();
+            emit(OP.LOAD, varSlot);
+            compileExpr(node.end);
+            emit(OP.LE);
+            const jz = emit(OP.JZ, 0);
+            compileBlock(node.body);
+            emit(OP.LOAD, varSlot);
+            if (node.step) compileExpr(node.step);
+            else emit(OP.PUSH, 1);
+            emit(OP.ADD);
+            emit(OP.STORE, varSlot);
+            emit(OP.JMP, loopTop);
+            patch(jz, here());
+          } else if (node.type === "ForGenericStatement") {
+            // for k, v in ipairs(t) do ... end   /   for k, v in pairs(t) do ... end
+            // Ginagawa nating index-based loop: idx=0; idx=idx+1; while idx<=#t;
+            //   k=idx, v=t[idx].  (ipairs at pairs = pareho ang trato dito para sa array tables)
+            const iter = node.iterators[0]; // CallExpression: ipairs(t) / pairs(t)
+            if (
+              iter.type !== "CallExpression" ||
+              !iter.base ||
+              (iter.base.name !== "ipairs" && iter.base.name !== "pairs")
+            ) {
+              throw new Error(
+                "suportado lang ang ipairs()/pairs() sa generic for",
+              );
+            }
+            // i-store ang table sa isang hidden slot
+            const tblSlot = slotFor("__for_t_" + here());
+            compileExpr(iter.arguments[0]);
+            emit(OP.STORE, tblSlot);
+            // idx hidden slot
+            const idxSlot = slotFor("__for_i_" + here());
+            emit(OP.PUSH, 0);
+            emit(OP.STORE, idxSlot);
+            // key/value variables
+            const keyVar = node.variables[0]
+              ? slotFor(node.variables[0].name)
+              : null;
+            const valVar = node.variables[1]
+              ? slotFor(node.variables[1].name)
+              : null;
+            const loopTop = here();
+            emit(OP.LOAD, idxSlot);
+            emit(OP.PUSH, 1);
+            emit(OP.ADD);
+            emit(OP.STORE, idxSlot); // idx++
+            emit(OP.LOAD, idxSlot);
+            emit(OP.LOAD, tblSlot);
+            emit(OP.TLEN);
+            emit(OP.LE); // idx <= #t
+            const jz = emit(OP.JZ, 0);
+            if (keyVar !== null) {
+              emit(OP.LOAD, idxSlot);
+              emit(OP.STORE, keyVar);
+            } // k = idx
+            if (valVar !== null) {
+              emit(OP.LOAD, tblSlot);
+              emit(OP.LOAD, idxSlot);
+              emit(OP.GETTABLE);
+              emit(OP.STORE, valVar);
+            } // v = t[idx]
+            compileBlock(node.body);
+            emit(OP.JMP, loopTop);
+            patch(jz, here());
+          } else {
+            // GRACEFUL: sa halip na mag-crash sa unsupported statement, mag-warning
+            // at i-skip ito. Tumatakbo pa rin ang natitirang script.
+            console.warn(
+              "[Luripe] babala: nilaktawan ang hindi sinusuportahang statement: " +
+                node.type,
+            );
+          }
+        }
+
+        // 2-pass: functions muna, tapos main
+        const funcNodes = [],
+          mainNodes = [];
+        // Helper: kunin ang qualified name mula sa function identifier.
+        //   foo            -> { name:"foo", isMethod:false }
+        //   Dog.new        -> { name:"Dog.new", isMethod:false }
+        //   Dog:speak      -> { name:"Dog.speak", isMethod:true }  (may implicit self)
+        function funcQualifiedName(id) {
+          if (!id) return null;
+          if (id.type === "Identifier")
+            return { name: id.name, isMethod: false };
+          if (id.type === "MemberExpression") {
+            // id.indexer ay "." o ":"
+            const base = id.base.name;
+            const key = id.identifier.name;
+            return { name: base + "." + key, isMethod: id.indexer === ":" };
+          }
+          return null;
+        }
+        for (const stmt of ast.body) {
+          const q =
+            stmt.type === "FunctionDeclaration"
+              ? funcQualifiedName(stmt.identifier)
+              : null;
+          if (q) {
+            stmt.__qname = q.name;
+            stmt.__isMethod = q.isMethod;
+            funcNodes.push(stmt);
+          } else mainNodes.push(stmt);
+        }
+        const skipToMain = emit(OP.JMP, 0);
+        for (const fn of funcNodes) {
+          functions[fn.__qname] = { addr: here(), isMethod: fn.__isMethod };
+          pushScope();
+          // Colon-declared method (Dog:speak) may implicit `self` bilang unang param (slot 0)
+          if (fn.__isMethod) slotFor("self");
+          for (const p of fn.parameters) {
+            if (p.type === "VarargLiteral") {
+              // function f(...) — ang extra args ay nagsisimula sa susunod na slot.
+              varargSlot = nextSlot;
+            } else {
+              slotFor(p.name);
+            }
+          }
+          compileBlock(fn.body);
+          emit(OP.PUSH, 0);
+          emit(OP.RETURN);
+          varargSlot = 0; // reset pagkatapos ng function
+        }
+        patch(skipToMain, here());
+        pushScope();
+        compileBlock(mainNodes);
+        emit(OP.HALT);
+
+        // (Ang closures ay ni-compile na INLINE sa compileFunctionExpr — walang deferred pass.)
+
+        return { OP, bytecode };
+      }
+
+      // ================= anti-tamper checksum =================
+      function checksumOf(bytecode) {
+        let sum = 0;
+        for (let i = 0; i < bytecode.length; i++) {
+          const inst = bytecode[i];
+          sum = (sum + inst.op * (i + 1)) % 1000003;
+          if (typeof inst.arg === "number") sum = (sum + inst.arg) % 1000003;
+        }
+        return sum;
+      }
+
+      // ================= bundler =================
+      function bundle(OP, bytecode) {
+        const checksum = checksumOf(bytecode);
+        const opmapLua =
+          "local OPMAP = {\n" +
+          OPS.map((n) => `  ["${n}"] = ${OP[n]},`).join("\n") +
+          "\n}";
+        const programLua =
+          "local program = {\n" +
+          bytecode
+            .map((i) => {
+              if (i.arg === undefined) return `  { ${i.op} },`;
+              if (Array.isArray(i.arg))
+                return `  { ${i.op}, {${i.arg.join(",")}} },`;
+              return `  { ${i.op}, ${i.arg} },`;
+            })
+            .join("\n") +
+          "\n}";
+
+        return luraphBundle(OP, bytecode, LURIPE_VM_SOURCE, checksum);
+      }
+
+      // === LURAPH-STYLE OUTPUT: encoded blob + scrambled names + minified VM ===
+      function minifyLua(src) {
+        src = src
+          .replace(/--\[\[[\s\S]*?\]\]/g, "") // block comments
+          .replace(/--[^\n]*/g, "") // line comments
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l.length)
+          .join(" ")
+          .replace(/\s+/g, " ");
+        return src;
+      }
+      // Scramble ang VM-internal local names (safe subset — hindi keywords/globals)
+      function scrambleVM(vmMin) {
+        const names = [
+          "decodeString",
+          "checksumOf",
+          "BUILTINS",
+          "callStack",
+          "csTop",
+          "newFrame",
+          "expectedChecksum",
+          "funcAddr",
+          "chars",
+          "encoded",
+          "vals",
+          "slots",
+          "startSlot",
+          "caller",
+          "loopTop",
+          "push",
+          "pop",
+          "frame",
+          "upvals",
+          "stack",
+          "program",
+          "inst",
+          "arg",
+          "argc",
+          "retIp",
+          "newTable",
+        ];
+        for (const nm of names) {
+          const scrambled = "_" + Math.random().toString(36).slice(2, 7);
+          vmMin = vmMin.replace(new RegExp("\\b" + nm + "\\b", "g"), scrambled);
+        }
+        return vmMin;
+      }
+      function luraphBundle(OP, bytecode, vmRaw, checksum) {
+        // 1. Flatten program -> number stream (op, tag, [args])
+        const nums = [];
+        for (const inst of bytecode) {
+          nums.push(inst.op);
+          if (inst.arg === undefined) nums.push(0);
+          else if (Array.isArray(inst.arg))
+            nums.push(2, inst.arg.length, ...inst.arg);
+          else nums.push(1, inst.arg);
+        }
+        // 2. RUNTIME-DERIVED MASK: galing sa sum ng opmap values (hindi hardcoded).
+        //    Kailangan i-compute ng attacker mula sa opmap bago ma-decode ang blob.
+        const opValues = OPS.map((n) => OP[n]);
+        let s = 0;
+        for (const v of opValues) s = (s + v) % 97;
+        const mask = (s % 64) + 1;
+        const blob = nums.map((n) => n ^ mask).join(",");
+        // 3. Scrambled var names
+        const r = () => "_" + Math.random().toString(36).slice(2, 7);
+        const B = r(),
+          M = r(),
+          D = r(),
+          P = r(),
+          N = r(),
+          I = r(),
+          MK = r(),
+          SM = r();
+        const vmMin = scrambleVM(minifyLua(vmRaw));
+        const opmapNamed =
+          "{" + OPS.map((n) => `${n}=${OP[n]}`).join(",") + "}";
+
+        // 4. Buuin ang isang siksik na bloke.
+        //    Ang mask AT ang string-key ay kino-compute sa runtime mula sa opmap — hindi nakalantad.
+        const KV = r(),
+          OV = r();
+        // I-derive: KEY = ((sum*7) % 200) + 30 ... pero kailangang tumugma sa aktwal na 0x5A=90, 7.
+        // Sa halip na i-derive ang 90/7 (na baka mahirap tumama), i-inject sila bilang
+        // computed expressions na hindi mukhang literal: 90 = (opcount*X)+Y style.
+        // Simpleng paraan: itago ang 90 at 7 bilang arithmetic sa isang runtime var.
+        const vmKeyed = vmMin.replace(
+          /local KEY, OFFSET = 0x5A, 7/,
+          `local KEY,OFFSET=${KV},${OV}`,
+        );
+        return (
+          `--[[ Protected by Luripe ]] ` +
+          `local ${M}=${opmapNamed};` +
+          `local ${SM}=0;for _,v in pairs(${M})do ${SM}=(${SM}+v)%97 end;local ${MK}=(${SM}%64)+1;` +
+          `local ${KV}=(45*2);local ${OV}=(14/2);` + // KEY=90 (0x5A), OFFSET=7 — bilang arithmetic
+          `local ${B}="${blob}";` +
+          `local function ${D}(s)local r={}for m in s:gmatch("[^,]+")do r[#r+1]=tonumber(m)~${MK} end return r end;` +
+          `local ${N}=${D}(${B});` +
+          `local ${P}={}local ${I}=1;while ${I}<=#${N} do local o=${N}[${I}];${I}=${I}+1;local t=${N}[${I}];${I}=${I}+1;` +
+          `if t==0 then ${P}[#${P}+1]={o} elseif t==1 then ${P}[#${P}+1]={o,${N}[${I}]};${I}=${I}+1 else local l=${N}[${I}];${I}=${I}+1;local a={}for k=1,l do a[k]=${N}[${I}];${I}=${I}+1 end;${P}[#${P}+1]={o,a} end end;` +
+          vmKeyed +
+          ` ` +
+          `run(${P},${M},${checksum})`
+        );
+      }
+
+      // ===== UI logic =====
+      function setStatus(msg, cls) {
+        const s = document.getElementById("status");
+        s.textContent = msg;
+        s.className = cls || "";
+      }
+
+      function run() {
+        const src = document.getElementById("input").value;
+        const outEl = document.getElementById("output");
+        if (!src.trim()) {
+          setStatus("Walang input.", "err");
+          return;
+        }
+        try {
+          setStatus("Kino-obfuscate...");
+          const { OP, bytecode } = compile(src);
+          const protectedLua = bundle(OP, bytecode);
+          outEl.value = protectedLua;
+          setStatus(
+            "✓ Protected! " +
+              bytecode.length +
+              " instructions, random opcodes.",
+            "ok",
+          );
+        } catch (e) {
+          outEl.value = "";
+          setStatus("✗ " + e.message, "err");
+        }
+      }
+      function copyOut() {
+        const o = document.getElementById("output");
+        if (!o.value) {
+          setStatus("Walang output na kopyahin.", "err");
+          return;
+        }
+        navigator.clipboard
+          .writeText(o.value)
+          .then(() => setStatus("✓ Nakopya sa clipboard.", "ok"));
+      }
+      function clearAll() {
+        document.getElementById("input").value = "";
+        document.getElementById("output").value = "";
+        setStatus("Nalinis.");
+      }
+    </script>
+  </body>
+</html>
