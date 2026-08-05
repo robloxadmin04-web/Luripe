@@ -702,16 +702,16 @@ end</textarea>
           "  local " + N.seed + "=enc[1];local " + N.prev + "=" + N.seed + ";local " + N.chars + "={}\n" +
           "  for i=2,#enc do\n" +
           "    local " + N.e + "=enc[i]\n" +
-          "    local " + N.ks + "=(" + N.seed + "~((i-1)*PRIME)~" + N.prev + ")&CMASK\n" +
-          "    local " + N.c + "=((" + N.e + "~" + N.ks + ")&CMASK)-OFFSET\n" +
+          "    local " + N.ks + "=bit32.band(bit32.bxor(bit32.bxor(" + N.seed + ",(i-1)*PRIME)," + N.prev + "),CMASK)\n" +
+          "    local " + N.c + "=bit32.band(bit32.bxor(" + N.e + "," + N.ks + "),CMASK)-OFFSET\n" +
           "    if " + N.c + "<0 then " + N.c + "=" + N.c + "+256 end\n" +
-          "    " + N.chars + "[i-1]=string.char(" + N.c + "&CMASK);" + N.prev + "=" + N.e + "\n" +
+          "    " + N.chars + "[i-1]=string.char(bit32.band(" + N.c + ",CMASK));" + N.prev + "=" + N.e + "\n" +
           "  end\n" +
           "  return table.concat(" + N.chars + ")\n" +
           "end\n" +
           "local function " + N.decodeNumber + "(enc)\n" +
           "  local R=enc[#enc];local t={enc[1]}\n" +
-          "  for i=2,#enc-1 do t[i]=(enc[i]~R)&0xFF end\n" +
+          "  for i=2,#enc-1 do t[i]=bit32.band(bit32.bxor(enc[i],R),0xFF) end\n" +
           "  return tonumber(" + N.decodeString + "(t)) end\n" +
           "local " + N.BUILTINS + "={\n" +
           "  [1]=function(a) return math.floor(a[1]) end,[2]=function(a) return math.ceil(a[1]) end,\n" +
@@ -1301,14 +1301,14 @@ end</textarea>
           junk(4) +
           opmapBuild +
           junk(3) +
-          "local " + SM + "=0;for _,v in pairs(" + M + ")do " + SM + "=(" + SM + "+v)&0xFFFFFFFF end;" +
-          "local " + MK + "1=((" + SM + "~0x9e3779b1)+" + seed + ")&0xFFFFFFFF;" +
-          "local " + MK + "2=((" + SM + "*2654435761)~(" + seed + "<<1))&0xFFFFFFFF;" +
+          "local " + SM + "=0;for _,v in pairs(" + M + ")do " + SM + "=bit32.band(" + SM + "+v,0xFFFFFFFF) end;" +
+          "local " + MK + "1=bit32.band(bit32.bxor(" + SM + ",0x9e3779b1)+" + seed + ",0xFFFFFFFF);" +
+          "local " + MK + "2=bit32.band(bit32.bxor(" + SM + "*2654435761,bit32.lshift(" + seed + ",1)),0xFFFFFFFF);" +
           junk(3) +
           "local " + B + "=\"" + blob + "\";" +
           "local " + C + "=" + constLua + ";" +
           junk(2) +
-          "local function " + D + "(s)local r={}for m in s:gmatch(\"[^,]+\")do local x=tonumber(m)&0xFFFFFFFF;x=x~(" + MK + "1>>3);x=(x-" + MK + "2)&0xFFFFFFFF;x=x~" + MK + "1;r[#r+1]=x&0xFFFFFFFF end return r end;" +
+          "local function " + D + "(s)local r={}for m in s:gmatch(\"[^,]+\")do local x=bit32.band(tonumber(m),0xFFFFFFFF);x=bit32.bxor(x,bit32.rshift(" + MK + "1,3));x=bit32.band(x-" + MK + "2,0xFFFFFFFF);x=bit32.bxor(x," + MK + "1);r[#r+1]=bit32.band(x,0xFFFFFFFF) end return r end;" +
           "local " + N + "=" + D + "(" + B + ");" +
           junk(3) +
           "local " + P + "={}local " + I + "=1;while " + I + "<=#" + N + " do local o=" + N + "[" + I + "];" + I + "=" + I + "+1;local t=" + N + "[" + I + "];" + I + "=" + I + "+1;" +
@@ -1400,10 +1400,10 @@ end</textarea>
           // reverse layer 2 (un-XOR round key), then layer 1 (rolling), rebuild bytes
           "local " + C + "={};local _p=" + SD + ";" +
           "for _i=1,#" + B + " do " +
-          "local _e=(" + B + "[_i]~" + RK + ")&0xFF;" +
-          "local _ks=(" + SD + "~(_i*167)~_p)&0xFF;" +
-          "local _c=((_e~_ks)&0xFF)-7;if _c<0 then _c=_c+256 end;" +
-          C + "[#" + C + "+1]=string.char(_c&0xFF);_p=_e end;" +
+          "local _e=bit32.band(bit32.bxor(" + B + "[_i]," + RK + "),0xFF);" +
+          "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
+          "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
+          C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
           "local " + D + "=table.concat(" + C + ");" +
           J(2) +
           "local _ls=loadstring or load;" +
