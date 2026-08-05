@@ -789,6 +789,25 @@ end</textarea
             else if (o === "..") emit(OP.CONCAT);
             else if (CMP[o]) emit(OP[CMP[o]]);
             else throw new Error("hindi sinusuportahan ang operator: " + o);
+          } else if (node.type === "LogicalExpression") {
+            // Short-circuit with Lua value semantics (returns an operand, not a bool).
+            compileExpr(node.left);
+            emit(OP.DUP);
+            if (node.operator === "and") {
+              // if left is falsy -> keep left, skip right; else pop left, eval right
+              const jz = emit(OP.JZ, 0);
+              emit(OP.POP);
+              compileExpr(node.right);
+              patch(jz, here());
+            } else if (node.operator === "or") {
+              // if left is truthy -> keep left, skip right; else pop left, eval right
+              const jz = emit(OP.JZ, 0);
+              const jmp = emit(OP.JMP, 0);
+              patch(jz, here());
+              emit(OP.POP);
+              compileExpr(node.right);
+              patch(jmp, here());
+            } else throw new Error("hindi sinusuportahan ang logical operator: " + node.operator);
           } else if (node.type === "CallExpression") {
             compileCall(node);
           } else if (node.type === "TableConstructorExpression") {
