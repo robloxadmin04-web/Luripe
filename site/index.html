@@ -517,11 +517,18 @@ end</textarea
           JZ:       `if ${O}()==0 then ${CT}.${CF.ip}=a;${CT}.${CF.jumped}=true end`,
           HALT:     `${CT}.${CF.halt}=true`,
           BUILTIN:  `local id,ac=a[1],a[2];local args={};for k=ac,1,-1 do args[k]=${O}() end;${P}(${N.BUILTINS}[id](args))`,
-          CALL:     `local fa,ac=a[1],a[2];local nf={};for k=ac-1,0,-1 do nf[k]=${O}() end;${N.csTop}=${N.csTop}+1;${N.callStack}[${N.csTop}]={r=${CT}.${CF.ip}+1,f=${F}};${N.frame}=nf;${CT}.${CF.ip}=fa;${CT}.${CF.jumped}=true`,
-          RETURN:   `local rv=${O}();local cl=${N.callStack}[${N.csTop}];${N.callStack}[${N.csTop}]=nil;${N.csTop}=${N.csTop}-1;${N.frame}=cl.f;${P}(rv);${CT}.${CF.ip}=cl.r;${CT}.${CF.jumped}=true`,
-          RETURNN:  `local n=a;local vs={};for k=n,1,-1 do vs[k]=${O}() end;local cl=${N.callStack}[${N.csTop}];${N.callStack}[${N.csTop}]=nil;${N.csTop}=${N.csTop}-1;${N.frame}=cl.f;for k=1,n do ${P}(vs[k]) end;${P}(n);${CT}.${CF.ip}=cl.r;${CT}.${CF.jumped}=true`,
+          CALL:     `local fa,ac=a[1],a[2];local nf={};for k=ac-1,0,-1 do nf[k]=${O}() end;${N.csTop}=${N.csTop}+1;${N.callStack}[${N.csTop}]={r=${CT}.${CF.ip}+1,f=${F},u=${N.upvals}};${N.frame}=nf;${N.upvals}=nil;${CT}.${CF.ip}=fa;${CT}.${CF.jumped}=true`,
+          RETURN:   `local rv=${O}();local cl=${N.callStack}[${N.csTop}];${N.callStack}[${N.csTop}]=nil;${N.csTop}=${N.csTop}-1;${N.frame}=cl.f;${N.upvals}=cl.u;${P}(rv);${CT}.${CF.ip}=cl.r;${CT}.${CF.jumped}=true`,
+          RETURNN:  `local n=a;local vs={};for k=n,1,-1 do vs[k]=${O}() end;local cl=${N.callStack}[${N.csTop}];${N.callStack}[${N.csTop}]=nil;${N.csTop}=${N.csTop}-1;${N.frame}=cl.f;${N.upvals}=cl.u;for k=1,n do ${P}(vs[k]) end;${P}(n);${CT}.${CF.ip}=cl.r;${CT}.${CF.jumped}=true`,
           STOREMULTI:`local sl=a;local n=${O}();local vs={};for k=n,1,-1 do vs[k]=${O}() end;for k=1,#sl do ${F}[sl[k]]=vs[k] end`,
           VARARG:   `local st=a;local t={};local n=0;local k=st;while ${F}[k]~=nil do n=n+1;t[n]=${F}[k];k=k+1 end;${P}(t)`,
+          NEWCELL:  `${F}[a]={v=${O}()}`,
+          LOADCELL: `local cl=${F}[a];${P}(cl and cl.v or nil)`,
+          STORECELL:`local val=${O}();local cl=${F}[a];if cl==nil then cl={v=nil};${F}[a]=cl end;cl.v=val`,
+          LOADUP:   `local u=${N.upvals} and ${N.upvals}[a];${P}(u and u.v or nil)`,
+          STOREUP:  `local val=${O}();local u=${N.upvals} and ${N.upvals}[a];if u then u.v=val end`,
+          CLOSURE:  `local addr=a[1];local caps=a[2];local ups={};for i=1,#caps do ups[i-1]=${F}[caps[i]] end;${P}({__cl=true,addr=addr,ups=ups})`,
+          CALLC:    `local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]=${O}() end;local clo=${O}();${N.csTop}=${N.csTop}+1;${N.callStack}[${N.csTop}]={r=${CT}.${CF.ip}+1,f=${F},u=${N.upvals}};${F}=cf;${N.upvals}=clo.ups;${CT}.${CF.ip}=clo.addr;${CT}.${CF.jumped}=true`,
         };
       
         // Every OP must have a body.
@@ -583,6 +590,7 @@ end</textarea
         local function ${N.sp}() return sp end
         local ${N.frame}={}
         local ${N.callStack},${N.csTop}={},0
+        local ${N.upvals}=nil
         local ${N.H}={}
       ${handlerLines.map((l) => "  " + l).join("\n")}
         local ${N.ctrl}={${CF.ip}=1,${CF.jumped}=false,${CF.halt}=false}
