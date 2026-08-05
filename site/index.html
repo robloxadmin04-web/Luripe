@@ -254,6 +254,16 @@
       .dbg-toggle input:checked + .dbg-box svg { opacity: 1; }
       .dbg-lbl { font-size: 13px; font-weight: 600; color: var(--text-dim); }
       .dbg-toggle input:checked ~ .dbg-lbl { color: var(--white); }
+      .err-row { margin-top: 12px; }
+      .err-row textarea {
+        width: 100%; min-height: 70px; resize: vertical;
+        background: linear-gradient(180deg, var(--panel-2), var(--panel));
+        border: 1px solid var(--border); border-radius: 12px;
+        color: var(--text); font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+        font-size: 12.5px; line-height: 1.6; padding: 12px 14px; outline: none;
+      }
+      .err-row textarea::placeholder { color: var(--text-faint); }
+      .err-row textarea:focus { border-color: var(--border-strong); }
 
       .icon-btn, button.primary, button.secondary, select, input[type="password"] {
         transition: transform 0.15s, border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
@@ -535,6 +545,10 @@ end</textarea>
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.2 4.8L19 10l-4.8 2.2L12 17l-2.2-4.8L5 10l4.8-2.2L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           AI Analyze
         </button>
+        <button class="secondary" onclick="aiExplainError()" id="errBtn" title="Paste a Roblox/executor error below, then click to diagnose the cause">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5M12 16h.01M12 3l9 16H3l9-16z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          Explain error
+        </button>
 
         <div class="divider"></div>
 
@@ -596,6 +610,12 @@ end</textarea>
     </div>
 
     <div id="aiPanel" style="display:none;"></div>
+
+    <div class="controls-wrap" style="margin-top:0;">
+      <div class="err-row">
+        <textarea id="errInput" spellcheck="false" placeholder="Paste a Roblox/executor error here, then click Explain error above to diagnose the cause..."></textarea>
+      </div>
+    </div>
 
     <footer>
       <span>Random opcodes per build</span><span class="dot">&middot;</span>
@@ -700,11 +720,24 @@ end</textarea>
         // predicate with a dead branch; randomize a junk local per handler.
         function mutate(code) {
           if (!PER_HANDLER_MUTATION) return code;
+          // Control-flow flattening per handler (Luraph-style state machine).
+          // A state var drives a while loop; the real body executes in one
+          // randomly-numbered state, bogus states redirect flow before/after.
+          const sv = "_" + Math.random().toString(36).slice(2, 6);
+          const done = "_" + Math.random().toString(36).slice(2, 6);
           const jv = "_" + Math.random().toString(36).slice(2, 6);
-          const a = (Math.random() * 900 + 10) | 0;
-          const dead = "local " + jv + "=" + a + "*" + a + ";";
-          // (jv >= 0) is always true for a square; else-branch is dead code.
-          return dead + "if " + jv + ">=0 then " + code + " else " + jv + "=" + jv + "+1 end";
+          // pick 3 distinct state numbers: entry, real, exit
+          const nums3 = [];
+          while (nums3.length < 3) { const n = ((Math.random()*900)|0)+10; if (nums3.indexOf(n)<0) nums3.push(n); }
+          const sEntry = nums3[0], sReal = nums3[1], sExit = nums3[2];
+          const a = ((Math.random()*900)|0)+10;
+          // entry -> real -> exit; a dead branch that never runs (square>=0 always true)
+          return "local " + sv + "=" + sEntry + ";local " + done + "=false;" +
+            "while not " + done + " do " +
+              "if " + sv + "==" + sEntry + " then local " + jv + "=" + a + "*" + a + ";if " + jv + ">=0 then " + sv + "=" + sReal + " else " + sv + "=" + sExit + " end " +
+              "elseif " + sv + "==" + sReal + " then " + code + ";" + sv + "=" + sExit + " " +
+              "else " + done + "=true end " +
+            "end";
         }
 
         // Layer 3: PURE-NUMERIC handlers. Emit H[<number>]=... using the literal
@@ -840,9 +873,18 @@ end</textarea>
         return out;
       }
       function encodeNumber(n) {
-        // Multi-round: rolling-encode, then XOR-fold every byte with a
-        // per-constant round key R stored as a trailing element.
-        const base = encodeString(String(n));
+        // Multi-round: rolling-encode a randomized string form of the number,
+        // then XOR-fold every byte with a per-constant round key R (trailing).
+        // The string form is varied per constant (integer vs padded vs float
+        // when exact) so identical numbers do not encode identically. tonumber()
+        // reverses all forms, so value is preserved.
+        let form = String(n);
+        if (Number.isInteger(n)) {
+          const pick = (Math.random()*3)|0;
+          if (pick === 1) form = " " + n;          // leading space (tonumber trims)
+          else if (pick === 2) form = n + ".0";     // float form
+        }
+        const base = encodeString(form);
         const R = 1 + Math.floor(Math.random() * 254);
         const out = base.map((b, i) => i === 0 ? b : ((b ^ R) & 0xff));
         out.push(R); // trailing round key
@@ -1714,6 +1756,96 @@ end</textarea>
 
       function esc(s) {
         return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
+      // ============ AI ERROR DIAGNOSIS ============
+      // Paste a runtime error from Roblox/executor + the source; AI explains the
+      // exact cause, the likely line, and a concrete fix. Works with the same key.
+      async function aiExplainError() {
+        const src = document.getElementById("input").value;
+        const errBox = document.getElementById("errInput");
+        const errText = errBox ? (errBox.value || "").trim() : "";
+        const key = (document.getElementById("aiKey").value || "").trim();
+        const provider = document.getElementById("aiProvider").value;
+        if (!errText) { setStatus("Paste the Roblox error message first.", "err"); return; }
+        if (!key) { setStatus("Enter your AI API key first.", "err"); return; }
+        localStorage.setItem("luripe_ai_key", key);
+        const btn = document.getElementById("errBtn");
+        if (btn) btn.disabled = true;
+        setStatus("AI diagnosing error...");
+
+        const prompt =
+          "You are debugging output from the 'Luripe' Luau obfuscator running in a Roblox executor (e.g. Delta). " +
+          "Luripe has a custom stack-based VM (compiles Lua to bytecode) for logic, and a loadstring 'wrapper' mode for UI/userdata scripts. " +
+          "Common failure causes: (1) VM cannot run Roblox userdata (Color3/UDim2/Enum/Vector2) so it silently stops; " +
+          "(2) loadstring disabled/hooked in the environment; " +
+          "(3) an unsupported Lua construct the compiler emitted a bad opcode for; " +
+          "(4) 'attempt to call a nil value' from a missing global/service; " +
+          "(5) 'attempt to perform arithmetic on a nil value' from a nil constant or stack underflow; " +
+          "(6) too-many-locals / syntax error from a huge script. " +
+          "Given the ERROR and the original SOURCE, return STRICT JSON only (no markdown): " +
+          "{\"cause\":\"one clear sentence naming the root cause\", " +
+          "\"line\":number-or-null (1-based line in SOURCE if identifiable), " +
+          "\"snippet\":\"the offending source line if identifiable, else empty\", " +
+          "\"fix\":\"a concrete, specific fix the user can apply\", " +
+          "\"mode\":\"VM\"|\"WRAPPER\"|\"RAW (which Luripe mode is most likely to make this script work)\", " +
+          "\"confidence\":\"high\"|\"medium\"|\"low\"}.\n\n" +
+          "ERROR:\n" + errText.slice(0, 2000) + "\n\n" +
+          "SOURCE (1-based lines):\n" +
+          src.split("\n").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\n").slice(0, 12000);
+
+        try {
+          const raw = await aiCall(provider, key, prompt);
+          if (!raw) throw new Error("Empty AI response.");
+          let rep;
+          try { rep = JSON.parse(raw); } catch (e) { const m = raw.match(/\{[\s\S]*\}/); rep = m ? JSON.parse(m[0]) : null; }
+          if (!rep) throw new Error("Could not parse AI response.");
+          renderErrorReport(rep);
+          setStatus("Error diagnosed.", "ok");
+        } catch (e) {
+          aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px;">' +
+            "AI error: " + esc(e.message) + "</div>");
+          setStatus("Diagnosis failed.", "err");
+        } finally { if (btn) btn.disabled = false; }
+      }
+
+      // Shared AI call helper (used by both analyze and error-explain).
+      async function aiCall(provider, key, prompt) {
+        if (provider === "gemini") {
+          const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + encodeURIComponent(key);
+          const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: "application/json" } }) });
+          if (!res.ok) { const t = await res.text(); throw new Error("Gemini " + res.status + ": " + t.slice(0, 160)); }
+          const data = await res.json();
+          return data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0].text;
+        }
+        let endpoint, model;
+        if (provider === "openai") { endpoint = "https://api.openai.com/v1/chat/completions"; model = "gpt-4o-mini"; }
+        else if (provider === "openrouter") { endpoint = "https://openrouter.ai/api/v1/chat/completions"; model = "google/gemini-2.0-flash-exp:free"; }
+        else if (provider === "groq") { endpoint = "https://api.groq.com/openai/v1/chat/completions"; model = "llama-3.3-70b-versatile"; }
+        else throw new Error("Unknown provider.");
+        const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+          body: JSON.stringify({ model: model, temperature: 0.1, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }) });
+        if (!res.ok) { const t = await res.text(); throw new Error(provider + " " + res.status + ": " + t.slice(0, 160)); }
+        const data = await res.json();
+        return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      }
+
+      function renderErrorReport(rep) {
+        const conf = rep.confidence === "high" ? "var(--ok)" : rep.confidence === "low" ? "var(--err)" : "#f5c451";
+        var lineInfo = "";
+        if (rep.line != null) lineInfo = ' <span style="color:var(--text-faint);">(line ' + esc(rep.line) + ')</span>';
+        aiPanelShow(
+          '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 20px;">' +
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+          '<span style="font-weight:700;font-size:14px;color:var(--text);">Error diagnosis</span>' +
+          '<span style="font-size:12px;color:' + conf + ';">confidence: ' + esc(rep.confidence || "?") + '</span></div>' +
+          '<div style="font-size:13px;color:var(--text);margin-bottom:10px;"><b>Cause:</b> ' + esc(rep.cause || "?") + lineInfo + '</div>' +
+          (rep.snippet ? '<div style="font-size:12px;margin-bottom:10px;"><code style="color:var(--text-faint);">' + esc(rep.snippet) + '</code></div>' : "") +
+          '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;"><b style="color:var(--text);">Fix:</b> ' + esc(rep.fix || "") + '</div>' +
+          '<div style="font-size:12px;color:var(--text-dim);">Recommended mode: <b style="color:var(--text);">' + esc(rep.mode || "?") + '</b></div>' +
+          '</div>'
+        );
       }
 
       function renderReport(rep) {
