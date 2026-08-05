@@ -982,9 +982,21 @@ end</textarea
         }
         const opValues = OPS.map((n) => OP[n]);
         let s = 0;
-        for (const v of opValues) s = (s + v) % 97;
-        const mask = (s % 64) + 1;
-        const blob = nums.map((n) => n ^ mask).join(",");
+        for (const v of opValues) s = (s + v) >>> 0;
+        // Embedded seed (per build) mixes into the round keys so the mask is not
+        // recomputable from the opmap alone.
+        const seed = (Math.floor(Math.random() * 0xffffffff) >>> 0);
+        const U = (x) => x >>> 0;
+        const K1 = U((s ^ 0x9e3779b1) + seed);
+        const K2 = U((s * 2654435761) ^ (seed << 1));
+        const enc = (n) => {
+          let x = U(n);
+          x = U(x ^ K1);
+          x = U(x + K2);
+          x = U(x ^ (K1 >>> 3));
+          return x;
+        };
+        const blob = nums.map((n) => enc(n)).join(",");
 
         // Constant pool serialized as a Lua table of tables (encoded numbers).
         const constLua = "{" + constPool.map((c) => "{" + c.join(",") + "}").join(",") + "}";
@@ -993,18 +1005,32 @@ end</textarea
         const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r();
         const gen = generateVM();
         const vmMin = minifyLua(gen.src);
-        const opmapNamed = "{" + OPS.map((n) => n + "=" + OP[n]).join(",") + "}";
+        
+        // Encoded opcode map: three arrays + runtime pairing (no NAME=num literal).
+        // namesArr[perm[i]] pairs with valsArr[i]. perm scrambles the linkage.
+        const idxOrder = OPS.map((_, i) => i);
+        for (let i = idxOrder.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [idxOrder[i], idxOrder[j]] = [idxOrder[j], idxOrder[i]]; }
+        // valsArr in scrambled index order; namesArr aligned to same scramble.
+        const namesArr = idxOrder.map((i) => '"' + OPS[i] + '"').join(",");
+        const valsArr = idxOrder.map((i) => OP[OPS[i]]).join(",");
+        const NM = "_" + Math.random().toString(36).slice(2, 7);
+        const VL = "_" + Math.random().toString(36).slice(2, 7);
+        const opmapBuild =
+          "local " + NM + "={" + namesArr + "};local " + VL + "={" + valsArr + "};" +
+          "local " + M + "={};for i=1,#" + NM + " do " + M + "[" + NM + "[i]]=" + VL + "[i] end;";
         
         return (
           junk(4) +
-          "local " + M + "=" + opmapNamed + ";" +
+          opmapBuild +
           junk(3) +
-          "local " + SM + "=0;for _,v in pairs(" + M + ")do " + SM + "=(" + SM + "+v)%97 end;local " + MK + "=(" + SM + "%64)+1;" +
+          "local " + SM + "=0;for _,v in pairs(" + M + ")do " + SM + "=(" + SM + "+v)&0xFFFFFFFF end;" +
+          "local " + MK + "1=((" + SM + "~0x9e3779b1)+" + seed + ")&0xFFFFFFFF;" +
+          "local " + MK + "2=((" + SM + "*2654435761)~(" + seed + "<<1))&0xFFFFFFFF;" +
           junk(3) +
           "local " + B + "=\"" + blob + "\";" +
           "local " + C + "=" + constLua + ";" +
           junk(2) +
-          "local function " + D + "(s)local r={}for m in s:gmatch(\"[^,]+\")do r[#r+1]=tonumber(m)~" + MK + " end return r end;" +
+          "local function " + D + "(s)local r={}for m in s:gmatch(\"[^,]+\")do local x=tonumber(m)&0xFFFFFFFF;x=x~(" + MK + "1>>3);x=(x-" + MK + "2)&0xFFFFFFFF;x=x~" + MK + "1;r[#r+1]=x&0xFFFFFFFF end return r end;" +
           "local " + N + "=" + D + "(" + B + ");" +
           junk(3) +
           "local " + P + "={}local " + I + "=1;while " + I + "<=#" + N + " do local o=" + N + "[" + I + "];" + I + "=" + I + "+1;local t=" + N + "[" + I + "];" + I + "=" + I + "+1;" +
