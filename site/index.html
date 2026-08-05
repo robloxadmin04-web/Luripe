@@ -1392,14 +1392,14 @@ end</textarea>
         }
         const J = (n) => Array.from({length:n}, junk).join("");
 
-        // Split blob into chunks joined at runtime, so no single {...} holds the whole thing.
+        // Split blob into a FIXED small number of chunks (<=8) so the loader never
+        // exceeds Luau's 200-locals-per-function limit, no matter how large the script.
         const nums = l3.slice();
+        const CHUNKS = Math.min(8, Math.max(1, nums.length));
+        const chunkSize = Math.ceil(nums.length / CHUNKS);
         const parts = [];
-        let idx2 = 0;
-        while (idx2 < nums.length) {
-          const take = 40 + ((Math.random()*40)|0);
-          parts.push(nums.slice(idx2, idx2 + take));
-          idx2 += take;
+        for (let ci = 0; ci < nums.length; ci += chunkSize) {
+          parts.push(nums.slice(ci, ci + chunkSize));
         }
         const partVars = parts.map(() => r());
         let blobAsm = "";
