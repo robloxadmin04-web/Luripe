@@ -382,7 +382,6 @@ end</textarea
             </svg>
             Output " Protected script
           </span>
-          <button class="icon-btn" onclick="copyLoadstring()" title="Copy as loadstring runner">LS</button>
           <button class="icon-btn" onclick="copyOut()">
             <svg viewBox="0 0 24 24" fill="none">
               <rect
@@ -557,9 +556,9 @@ end</textarea
           CLOSURE:  "local addr=a[1];local caps=a[2];local ups={};for i=1,#caps do ups[i-1]="+F+"[caps[i]] end;"+P+"({__cl=true,addr=addr,ups=ups})",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
           GETGLOBAL: "local nm="+N.decodeString+"(a);"+P+"((_ENV or getfenv and getfenv() or _G)[nm])",
-          SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+P+"(fn(obj,table.unpack(args,1,ac)))",
-          CALLR:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+P+"(fn(table.unpack(args,1,ac)))",
-          RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();fn(table.unpack(args,1,ac))",
+          SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+P+"(fn(obj,(table.unpack or unpack)(args,1,ac)))",
+          CALLR:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+P+"(fn((table.unpack or unpack)(args,1,ac)))",
+          RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();fn((table.unpack or unpack)(args,1,ac))",
         };
 
         const missing = OPS.filter((o) => !(o in body));
@@ -1375,25 +1374,7 @@ end</textarea
 
       // Copy the output as a directly-runnable loadstring one-liner for Delta.
       // If output is already a loader, copies as-is. Otherwise wraps raw Lua.
-      function copyLoadstring() {
-        const o = document.getElementById("output");
-        let val = o.value;
-        if (!val.trim()) {
-          // nothing generated yet -> wrap the INPUT so users can run unobfuscated
-          val = document.getElementById("input").value;
-          if (!val.trim()) { setStatus("Nothing to copy.", "err"); return; }
-        }
-        // Pick a long-bracket level [==[ ... ]==] that does NOT appear in the
-        // script, so content containing ]] (like UI frameworks) never breaks it.
-        let eq = "";
-        while (val.indexOf("]" + eq + "]") !== -1 || val.indexOf("[" + eq + "[") !== -1) {
-          eq += "=";
-        }
-        const out = "loadstring([" + eq + "[\n" + val + "]" + eq + "])()";
-        navigator.clipboard.writeText(out).then(
-          () => setStatus("Copied loadstring runner - paste into Delta and run.", "ok")
-        );
-      }
+
 
       // ================= AI ANALYZER (Google Gemini) =================
       // Reads raw Lua BEFORE obfuscation, diagnoses which constructs are
