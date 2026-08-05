@@ -1350,7 +1350,7 @@ end</textarea>
           else { bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)); }
         }
         const OFFSET = 7, PRIME = 167, CMASK = 0xff;
-        // Layer 1: rolling cipher.
+        // Layer 1: rolling cipher (position + chain dependent).
         const seed = 1 + Math.floor(Math.random() * 254);
         const l1 = [];
         let prev = seed;
@@ -1362,13 +1362,23 @@ end</textarea>
         // Layer 2: per-build round key XOR fold.
         const R = 1 + Math.floor(Math.random() * 254);
         const l2 = l1.map((b) => (b ^ R) & CMASK);
-        // Anti-tamper: simple length+sum checksum embedded and re-checked.
-        let chk = l2.length % 100003;
-        for (const b of l2) chk = (chk + b) % 100003;
+        // Layer 3: reversed-index second fold with a distinct key (breaks simple static reverse).
+        const R2 = 1 + Math.floor(Math.random() * 254);
+        const l3 = l2.map((b, i) => (b ^ ((R2 + i) & CMASK)) & CMASK);
+        // Anti-tamper checksum over final layer.
+        let chk = l3.length % 100003;
+        for (const b of l3) chk = (chk + b) % 100003;
 
-        const blob = l2.join(",");
+        // Keys are reconstructed at runtime from a scrambled seed table, not stored plainly.
+        // key table order is shuffled; loader indexes it by fixed positions.
+        const kt = [seed, R, R2, chk & 0xff];
+        const kOrder = [0, 1, 2, 3];
+        for (let i = kOrder.length - 1; i > 0; i--) { const j = (Math.random()*(i+1))|0; [kOrder[i],kOrder[j]]=[kOrder[j],kOrder[i]]; }
+        const scrambled = kOrder.map((idx) => kt[idx]);
+        const pos = { seed: kOrder.indexOf(0)+1, R: kOrder.indexOf(1)+1, R2: kOrder.indexOf(2)+1 };
+
         const r = () => "_" + Math.random().toString(36).slice(2, 7);
-        const B = r(), S = r(), C = r(), D = r(), FN = r(), RK = r(), SD = r(), CK = r(), AC = r();
+        const B = r(), C = r(), D = r(), FN = r(), KT = r(), SD = r(), RK = r(), RK2 = r(), CK = r(), AC = r(), G = r(), LS = r();
         const rn = () => "_" + Math.random().toString(36).slice(2, 6);
         function junk() {
           const v = rn(), a = (Math.random()*999)|0, b = ((Math.random()*99)|0)+1;
@@ -1382,38 +1392,65 @@ end</textarea>
         }
         const J = (n) => Array.from({length:n}, junk).join("");
 
-        // Runtime loader. Reverses layer 2 then layer 1, verifies checksum, runs.
+        // Split blob into chunks joined at runtime, so no single {...} holds the whole thing.
+        const nums = l3.slice();
+        const parts = [];
+        let idx2 = 0;
+        while (idx2 < nums.length) {
+          const take = 40 + ((Math.random()*40)|0);
+          parts.push(nums.slice(idx2, idx2 + take));
+          idx2 += take;
+        }
+        const partVars = parts.map(() => r());
+        let blobAsm = "";
+        partVars.forEach((pv, i) => { blobAsm += "local " + pv + "={" + parts[i].join(",") + "};"; });
+        blobAsm += "local " + B + "={};";
+        blobAsm += "for _,_pp in ipairs({" + partVars.join(",") + "}) do for _k=1,#_pp do " + B + "[#" + B + "+1]=_pp[_k] end end;";
+
+        // Anti-hook: capture a trusted reference to loadstring/load, and verify a tiny canary
+        // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
+        const anti =
+          "local " + LS + "=loadstring or load;" +
+          "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
+          // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
+          // (instead of a function) or mangles it will fail this and we abort before feeding real source.
+          "local _cf=" + LS + "('return 1+1');" +
+          "if type(_cf)~='function' or _cf()~=2 then warn('Luripe: environment tampered (loadstring hook detected)') return end;";
+
         const loader =
           J(3) +
-          "local " + B + "={" + blob + "};" +
-          "local " + RK + "=" + R + ";" +
-          "local " + SD + "=" + seed + ";" +
+          "local " + KT + "={" + scrambled.join(",") + "};" +
+          "local " + SD + "=" + KT + "[" + pos.seed + "];" +
+          "local " + RK + "=" + KT + "[" + pos.R + "];" +
+          "local " + RK2 + "=" + KT + "[" + pos.R2 + "];" +
           "local " + CK + "=" + chk + ";" +
           (DBG ? "warn('[Luripe] loader started - if you can read this, prints work');" : "") +
           J(2) +
-          // anti-tamper: recompute checksum on the (layer-2) blob
+          blobAsm +
+          J(2) +
+          // anti-tamper: recompute checksum on the final-layer blob
           "local " + AC + "=#" + B + "%100003;for _i=1,#" + B + " do " + AC + "=(" + AC + "+" + B + "[_i])%100003 end;" +
           (DBG
             ? "if " + AC + "~=" + CK + " then warn('[Luripe] checksum mismatch - blob corrupted in paste') return end;"
             : "if " + AC + "~=" + CK + " then return end;") +
           J(2) +
-          // reverse layer 2 (un-XOR round key), then layer 1 (rolling), rebuild bytes
+          // reverse layer 3 (index fold) -> layer 2 (round key) -> layer 1 (rolling), rebuild bytes
           "local " + C + "={};local _p=" + SD + ";" +
           "for _i=1,#" + B + " do " +
-          "local _e=bit32.band(bit32.bxor(" + B + "[_i]," + RK + "),0xFF);" +
+          "local _b3=bit32.band(bit32.bxor(" + B + "[_i],bit32.band(" + RK2 + "+(_i-1),0xFF)),0xFF);" +
+          "local _e=bit32.band(bit32.bxor(_b3," + RK + "),0xFF);" +
           "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
           "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
           C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
           "local " + D + "=table.concat(" + C + ");" +
           J(2) +
-          "local _ls=loadstring or load;" +
-          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, loadstring type: '..type(_ls));" : "") +
-          "if type(_ls)~='function' then warn('Luripe: loadstring/load not available - Wrapper mode needs an executor that allows loadstring') return end;" +
-          "local " + FN + ",_err=_ls(" + D + ");" +
+          anti +
+          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          "local " + FN + ",_err=" + LS + "(" + D + ");" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
-          "local _env=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
-          "if setfenv and _env then pcall(setfenv," + FN + ",_env) end;" +
+          "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
+          "if setfenv and " + G + " then pcall(setfenv," + FN + "," + G + ") end;" +
           (DBG ? "warn('[Luripe] compiled OK, executing...');" : "") +
           "local _ok,_e2=pcall(" + FN + ");" +
           (DBG
