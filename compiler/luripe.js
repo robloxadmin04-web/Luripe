@@ -793,7 +793,6 @@ function luraphBundle(OP, bytecode, vmRaw, checksum) {
     `local KEY,OFFSET=${KV},${OV}`,
   );
   return (
-    `--[[ Protected by Luripe ]] ` +
     junk(4) +
     `local ${M}=${opmapNamed};` +
     junk(3) +
