@@ -1,19 +1,17 @@
 //  compile.js  —  Luripe compiler
-//  === STEP 8: FUNCTIONS (function decl + calls + return) ===
+//  === STEP 9: FOR LOOPS + TABLES ===
 //
 //  Bago:
-//    - function foo(a, b) ... return x end
-//    - function calls: foo(1, 2)  bilang expression o statement
-//    - return statement
-//    - Frame-based locals: bawat function may sariling scope/slots.
-//    - Functions naka-compile sa itaas; may JMP para laktawan sila papunta sa main.
+//    - for i = start, stop [, step] do ... end   (ginagawang while)
+//    - Tables: {}, {1,2,3}, t[k] = v, t[k] read
+//    - Bagong opcodes: NEWTABLE, SETTABLE, GETTABLE
 //
 //  Patakbuhin:  node compile.js
 //  Kailangan:   npm install luaparse
 
 const luaparse = require("luaparse");
 
-const HARDENING = false; // patay muna para malinaw ang addresses habang natututo
+const HARDENING = false;
 
 const KEY = 0x5a,
   OFFSET = 7;
@@ -47,6 +45,9 @@ const OPS = [
   "NE",
   "CALL",
   "RETURN",
+  "NEWTABLE",
+  "SETTABLE",
+  "GETTABLE",
 ];
 function buildOpcodeMap() {
   const nums = [];
@@ -65,17 +66,18 @@ const OP = buildOpcodeMap();
 
 // ====== source ======
 const source = `
-function double(n)
-  return n * 2
+function square(n)
+  return n * n
 end
 
-function add(a, b)
-  return a + b
+local t = {}
+for i = 1, 5 do
+  t[i] = square(i)
 end
 
-print(double(21))
-print(add(10, 5))
-print(double(add(3, 4)))
+for i = 1, 5 do
+  print(t[i])
+end
 `;
 
 const ast = luaparse.parse(source);
@@ -93,10 +95,7 @@ function here() {
   return bytecode.length + 1;
 }
 
-// Function registry: pangalan -> { addr, params }
 const functions = {};
-
-// Scope stack: bawat function may sariling variable slots.
 let scope = {};
 let nextSlot = 0;
 function pushScope() {
@@ -146,8 +145,40 @@ function compileExpr(node) {
     else if (CMP[o]) emit(OP[CMP[o]]);
     else throw new Error("hindi sinusuportahan ang operator: " + o);
   } else if (node.type === "CallExpression") {
-    // BAGO: function call na may resulta
     compileCall(node);
+  } else if (node.type === "TableConstructorExpression") {
+    // BAGO: {} o {1,2,3}
+    emit(OP.NEWTABLE);
+    let arrayIndex = 1;
+    for (const field of node.fields) {
+      if (field.type === "TableValue") {
+        // {10, 20, 30} -> t[1]=10, t[2]=20, ...
+        emit(OP.DUP); // kopya ng table
+        emit(OP.PUSH, arrayIndex++); // key
+        compileExpr(field.value); // value
+        emit(OP.SETTABLE);
+      } else if (field.type === "TableKeyString") {
+        // {x = 5} -> t["x"]=5
+        emit(OP.DUP);
+        emit(OP.PUSHSTR, encodeString(field.key.name));
+        compileExpr(field.value);
+        emit(OP.SETTABLE);
+      } else {
+        throw new Error(
+          "hindi pa sinusuportahan ang table field: " + field.type,
+        );
+      }
+    }
+  } else if (node.type === "IndexExpression") {
+    // BAGO: t[k]
+    compileExpr(node.base);
+    compileExpr(node.index);
+    emit(OP.GETTABLE);
+  } else if (node.type === "MemberExpression") {
+    // BAGO: t.x  (parang t["x"])
+    compileExpr(node.base);
+    emit(OP.PUSHSTR, encodeString(node.identifier.name));
+    emit(OP.GETTABLE);
   } else {
     throw new Error("hindi sinusuportahan ang expression: " + node.type);
   }
@@ -162,9 +193,32 @@ function compileCall(node) {
   }
   const fn = functions[fnName];
   if (!fn) throw new Error("hindi pa naka-declare ang function: " + fnName);
-  // itulak ang arguments (in order)
   for (const a of node.arguments) compileExpr(a);
-  emit(OP.CALL, [fn.addr, node.arguments.length]); // naiiwan ang return value sa stack
+  emit(OP.CALL, [fn.addr, node.arguments.length]);
+}
+
+// Ini-store ang isang assignment target (variable, t[k], o t.x)
+function compileAssignTarget(target, valueEmitter) {
+  if (target.type === "Identifier") {
+    valueEmitter();
+    emit(OP.STORE, slotFor(target.name));
+  } else if (target.type === "IndexExpression") {
+    // t[k] = v
+    compileExpr(target.base);
+    compileExpr(target.index);
+    valueEmitter();
+    emit(OP.SETTABLE);
+  } else if (target.type === "MemberExpression") {
+    // t.x = v
+    compileExpr(target.base);
+    emit(OP.PUSHSTR, encodeString(target.identifier.name));
+    valueEmitter();
+    emit(OP.SETTABLE);
+  } else {
+    throw new Error(
+      "hindi sinusuportahan ang assignment target: " + target.type,
+    );
+  }
 }
 
 function compileBlock(body) {
@@ -184,14 +238,13 @@ function compileStatement(node) {
     }
   } else if (node.type === "AssignmentStatement") {
     for (let i = 0; i < node.variables.length; i++) {
-      const name = node.variables[i].name;
-      compileExpr(node.init[i]);
-      emit(OP.STORE, slotFor(name));
+      const target = node.variables[i];
+      const initExpr = node.init[i];
+      compileAssignTarget(target, () => compileExpr(initExpr));
     }
   } else if (node.type === "CallStatement") {
     compileCall(node.expression);
   } else if (node.type === "ReturnStatement") {
-    // BAGO
     if (node.arguments.length) compileExpr(node.arguments[0]);
     else emit(OP.PUSH, 0);
     emit(OP.RETURN);
@@ -217,13 +270,34 @@ function compileStatement(node) {
     compileBlock(node.body);
     emit(OP.JMP, loopTop);
     patch(jz, here());
+  } else if (node.type === "ForNumericStatement") {
+    // BAGO: for i = a, b [, step]
+    const varSlot = slotFor(node.variable.name);
+    // i = start
+    compileExpr(node.start);
+    emit(OP.STORE, varSlot);
+    const stepVal = node.step ? null : 1; // kung walang step, default 1
+    const loopTop = here();
+    // condition: i <= stop
+    emit(OP.LOAD, varSlot);
+    compileExpr(node.end);
+    emit(OP.LE);
+    const jz = emit(OP.JZ, 0);
+    compileBlock(node.body);
+    // i = i + step
+    emit(OP.LOAD, varSlot);
+    if (node.step) compileExpr(node.step);
+    else emit(OP.PUSH, 1);
+    emit(OP.ADD);
+    emit(OP.STORE, varSlot);
+    emit(OP.JMP, loopTop);
+    patch(jz, here());
   } else {
     throw new Error("hindi sinusuportahan ang statement: " + node.type);
   }
 }
 
 // ====== 2-pass: functions muna, tapos main ======
-// Pass 1: hanapin ang lahat ng function declarations (para alam ang pangalan bago pa i-call)
 const funcNodes = [];
 const mainNodes = [];
 for (const stmt of ast.body) {
@@ -231,23 +305,18 @@ for (const stmt of ast.body) {
   else mainNodes.push(stmt);
 }
 
-// Laktawan ang function bodies papunta sa main
 const skipToMain = emit(OP.JMP, 0);
 
-// I-compile ang bawat function
 for (const fn of funcNodes) {
   const name = fn.identifier.name;
   functions[name] = { addr: here(), params: fn.parameters.map((p) => p.name) };
   pushScope();
-  // ang parameters -> slots 0..n-1 (naka-set na ng CALL sa frame)
   for (const p of fn.parameters) slotFor(p.name);
   compileBlock(fn.body);
-  // safety: kung walang return, magbalik ng 0
   emit(OP.PUSH, 0);
   emit(OP.RETURN);
 }
 
-// MAIN entry
 patch(skipToMain, here());
 pushScope();
 compileBlock(mainNodes);

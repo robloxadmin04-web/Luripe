@@ -1,17 +1,27 @@
 --[[
-  vm.lua  —  Luripe: ang runtime virtual machine (Lua-in-Lua)
-  === STEP 9: dinagdagan ng TABLES (NEWTABLE / SETTABLE / GETTABLE) ===
+  step9_demo.lua  —  Luripe Step 9: FOR LOOPS + TABLES na!
+  Self-contained — pwede sa OneCompiler o lua.
 
-  Ang `for` loop ay ginagawang `while` ng compiler (desugaring), kaya walang
-  bagong opcode para dito — ginagamit lang ang JMP/JZ/LE na meron na.
+  Pinagsama: functions + for loops + tables.
 
-  Bago para sa TABLES:
-    - NEWTABLE : gumawa ng bagong (empty) table -> itulak sa stack
-    - SETTABLE : t[k] = v   (kinukuha ang t, k, v sa stack; walang naiiwan)
-    - GETTABLE : t[k]       (kinukuha ang t, k; itinutulak ang value)
+      function square(n)
+        return n * n
+      end
 
-  Ang VM ay tumatanggap ng OPMAP (name -> random number) galing sa compiler.
-  Gamitin:  VM.run(program, OPMAP)
+      local t = {}
+      for i = 1, 5 do
+        t[i] = square(i)
+      end
+
+      for i = 1, 5 do
+        print(t[i])
+      end
+
+  Inaasahang output:  1  4  9  16  25
+
+  Bago:
+    - for i = a, b do ... end  -> ginagawang while ng compiler
+    - Tables: NEWTABLE (gumawa), SETTABLE (t[k]=v), GETTABLE (t[k])
 ]]
 
 local KEY, OFFSET = 0x5A, 7
@@ -20,6 +30,12 @@ local function decodeString(encoded)
   for i = 1, #encoded do chars[i] = string.char((encoded[i] ~ KEY) - OFFSET) end
   return table.concat(chars)
 end
+
+local OPMAP = {
+  PUSH=1, ADD=2, SUB=3, MUL=4, PRINT=5, JMP=6, JZ=7, DUP=8, HALT=9,
+  STORE=10, LOAD=11, DIV=12, PUSHSTR=13, POP=14, LT=15, GT=16, LE=17,
+  GE=18, EQ=19, NE=20, CALL=21, RETURN=22, NEWTABLE=23, SETTABLE=24, GETTABLE=25,
+}
 
 local function run(program, OP)
   local stack, sp = {}, 0
@@ -53,13 +69,9 @@ local function run(program, OP)
     elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)
     elseif op == OP.JMP then ip = arg; goto continue
     elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end
-
-    elseif op == OP.NEWTABLE then push({})                       -- BAGO
-    elseif op == OP.SETTABLE then                                -- BAGO: t[k] = v
-      local v = pop(); local k = pop(); local t = pop(); t[k] = v
-    elseif op == OP.GETTABLE then                                -- BAGO: t[k]
-      local k = pop(); local t = pop(); push(t[k])
-
+    elseif op == OP.NEWTABLE then push({})
+    elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v
+    elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])
     elseif op == OP.CALL then
       local funcAddr, argc = arg[1], arg[2]
       local newFrame = {}
@@ -78,7 +90,6 @@ local function run(program, OP)
       push(rv)
       ip = caller.retIp
       goto continue
-
     elseif op == OP.HALT then break
     else error("hindi kilalang opcode: " .. tostring(op)) end
 
@@ -87,4 +98,35 @@ local function run(program, OP)
   end
 end
 
-return { run = run }
+-- ===== bytecode (na-verify na tama): square @ addr 2 =====
+local program = {
+  { 6, 8 },       -- JMP -> main
+  -- square(n): return n*n  @ ip 2
+  { 11, 0 }, { 11, 0 }, { 4 }, { 22 },
+  { 1, 0 }, { 22 },
+  -- main @ ip 8
+  { 23 }, { 10, 0 },              -- t = {}
+  -- for i=1,5 do t[i]=square(i) end
+  { 1, 1 }, { 10, 1 },           -- i = 1
+  { 11, 1 }, { 1, 5 }, { 17 }, { 7, 26 },   -- while i<=5
+  { 11, 0 }, { 11, 1 },          -- t, i
+  { 11, 1 }, { 21, {2,1} },      -- square(i)
+  { 24 },                        -- t[i] = ...
+  { 11, 1 }, { 1, 1 }, { 2 }, { 10, 1 },   -- i = i+1
+  { 6, 12 },                     -- loop
+  -- for i=1,5 do print(t[i]) end
+  { 1, 1 }, { 10, 1 },           -- i = 1
+  { 11, 1 }, { 1, 5 }, { 17 }, { 7, 41 },   -- while i<=5
+  { 11, 0 }, { 11, 1 }, { 25 }, { 5 },      -- print(t[i])
+  { 11, 1 }, { 1, 1 }, { 2 }, { 10, 1 },    -- i = i+1
+  { 6, 28 },                     -- loop
+  { 9 },                         -- HALT
+}
+
+run(program, OPMAP)
+-- Inaasahang output:
+--   1
+--   4
+--   9
+--   16
+--   25
