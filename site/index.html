@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Luripe â€” Luau Obfuscator</title>
+    <title>Luripe " Luau Obfuscator</title>
     <script src="https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.min.js"></script>
     <style>
       :root {
@@ -321,7 +321,7 @@
       </div>
       <div class="title-group">
         <h1>Luripe</h1>
-        <p>Luau VM Obfuscator â€” runs entirely in your browser, no server</p>
+        <p>Luau VM Obfuscator " runs entirely in your browser, no server</p>
       </div>
     </header>
 
@@ -338,7 +338,7 @@
                 stroke-linejoin="round"
               />
             </svg>
-            Input â€” Luau source
+            Input " Luau source
           </span>
         </div>
         <textarea
@@ -380,7 +380,7 @@ end</textarea
                 stroke-linecap="round"
               />
             </svg>
-            Output â€” Protected script
+            Output " Protected script
           </span>
           <button class="icon-btn" onclick="copyOut()">
             <svg viewBox="0 0 24 24" fill="none">
@@ -455,77 +455,31 @@ end</textarea
     </footer>
 
     <script>
-      const LURIPE_VM_SOURCE =
-        '--[[\n  vm.lua  â€”  Luripe: ang runtime virtual machine (Lua-in-Lua)\n  === ROLLING CIPHER + CONSTANT POOL edition ===\n\n  Bago sa bersyon na ito:\n    - Rolling string decode: position- at chain-dependent ang keystream.\n        ks_i = seed ~ (i * PRIME) ~ prev_encoded\n        char = ((e_i ~ ks_i) & 0xFF) - OFFSET ;  prev := e_i\n      Ang unang element ng encoded array ay ang per-string SEED.\n    - LOADK: numeric constants ay galing sa CONSTS pool (encoded din). Walang\n      literal na numero sa bytecode; index na lang ang nakikita.\n\n  Gamitin:  VM.run(program, OPMAP, checksum, CONSTS)\n]]\n\nlocal OFFSET, PRIME, CMASK = 7, 167, 0xFF\n\nlocal function decodeString(encoded)\n  -- encoded[1] = seed ; encoded[2..] = rolling-encrypted bytes\n  local seed = encoded[1]\n  local prev = seed\n  local chars = {}\n  for i = 2, #encoded do\n    local e = encoded[i]\n    local ks = (seed ~ ((i - 1) * PRIME) ~ prev) & CMASK\n    local c = ((e ~ ks) & CMASK) - OFFSET\n    if c < 0 then c = c + 256 end\n    chars[i - 1] = string.char(c & CMASK)\n    prev = e\n  end\n  return table.concat(chars)\nend\n\nlocal function decodeNumber(encoded)\n  return tonumber(decodeString(encoded))\nend\n\nlocal BUILTINS = {\n  [1]  = function(a) return math.floor(a[1]) end,\n  [2]  = function(a) return math.ceil(a[1]) end,\n  [3]  = function(a) return math.abs(a[1]) end,\n  [4]  = function(a) return math.max(a[1], a[2]) end,\n  [5]  = function(a) return math.min(a[1], a[2]) end,\n  [6]  = function(a) return string.upper(a[1]) end,\n  [7]  = function(a) return string.lower(a[1]) end,\n  [8]  = function(a) return #a[1] end,\n  [9]  = function(a) return string.rep(a[1], a[2]) end,\n  [10] = function(a) return tostring(a[1]) end,\n  [11] = function(a) return tonumber(a[1]) end,\n  [12] = function(a) table.insert(a[1], a[2]); return 0 end,\n  [13] = function(a) return math.sqrt(a[1]) end,\n  [14] = function(a) return math.random(a[1], a[2]) end,\n  [15] = function(a) return a[1] ^ a[2] end,\n  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,\n  [17] = function(a) return string.format(a[1], a[2], a[3], a[4]) end,\n  [18] = function(a) return string.reverse(a[1]) end,\n  [19] = function(a) return string.byte(a[1], a[2]) end,\n  [20] = function(a) return string.char(a[1]) end,\n  [21] = function(a) return table.remove(a[1], a[2]) end,\n  [22] = function(a) return table.concat(a[1], a[2] or "") end,\n  [23] = function(a) return type(a[1]) end,\n  [24] = function(a) return math.sin(a[1]) end,\n  [25] = function(a) return math.cos(a[1]) end,\n}\n\nlocal function checksumOf(program)\n  local sum = 0\n  for i = 1, #program do\n    local inst = program[i]\n    sum = (sum + inst[1] * i) % 1000003\n    if type(inst[2]) == "number" then sum = (sum + inst[2]) % 1000003 end\n  end\n  return sum\nend\n\nlocal function run(program, OP, expectedChecksum, CONSTS)\n  if expectedChecksum ~= nil and checksumOf(program) ~= expectedChecksum then\n    error("Luripe: tampering detected")\n  end\n\n  -- I-decode nang maaga ang buong constant pool (once). Index -> number.\n  local K = {}\n  if CONSTS then\n    for i = 1, #CONSTS do K[i - 1] = decodeNumber(CONSTS[i]) end  -- 0-based index mula sa compiler\n  end\n\n  local stack, sp = {}, 0\n  local function push(v) sp = sp + 1; stack[sp] = v end\n  local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end\n\n  local frame = {}\n  local upvals = {}\n  local callStack, csTop = {}, 0\n  local ip = 1\n\n  while ip <= #program do\n    local inst = program[ip]\n    local op, arg = inst[1], inst[2]\n\n    if op == OP.PUSH then push(arg)\n    elseif op == OP.LOADK then push(K[arg])          -- BAGO: numeric constant mula sa pool\n    elseif op == OP.POP then pop()\n    elseif op == OP.ADD then local b = pop(); local a = pop(); push(a + b)\n    elseif op == OP.SUB then local b = pop(); local a = pop(); push(a - b)\n    elseif op == OP.MUL then local b = pop(); local a = pop(); push(a * b)\n    elseif op == OP.DIV then local b = pop(); local a = pop(); push(a / b)\n    elseif op == OP.MOD then local b = pop(); local a = pop(); push(a % b)\n    elseif op == OP.PRINT then print(stack[sp])\n    elseif op == OP.DUP then push(stack[sp])\n    elseif op == OP.STORE then frame[arg] = pop()\n    elseif op == OP.LOAD then push(frame[arg])\n    elseif op == OP.PUSHSTR then push(decodeString(arg))\n    elseif op == OP.CONCAT then local b = pop(); local a = pop(); push(tostring(a) .. tostring(b))\n    elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)\n    elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)\n    elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)\n    elseif op == OP.GE then local b = pop(); local a = pop(); push(a >= b and 1 or 0)\n    elseif op == OP.EQ then local b = pop(); local a = pop(); push(a == b and 1 or 0)\n    elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)\n    elseif op == OP.JMP then ip = arg; goto continue\n    elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end\n    elseif op == OP.NEWTABLE then push({})\n    elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v\n    elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])\n    elseif op == OP.TLEN then local t = pop(); push(#t)\n    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)\n\n    elseif op == OP.BUILTIN then\n      local id, argc = arg[1], arg[2]\n      local args = {}\n      for k = argc, 1, -1 do args[k] = pop() end\n      push(BUILTINS[id](args))\n\n    elseif op == OP.CALL then\n      local funcAddr, argc = arg[1], arg[2]\n      local newFrame = {}\n      for k = argc - 1, 0, -1 do newFrame[k] = pop() end\n      csTop = csTop + 1\n      callStack[csTop] = { retIp = ip + 1, frame = frame }\n      frame = newFrame\n      ip = funcAddr\n      goto continue\n    elseif op == OP.RETURN then\n      local rv = pop()\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      push(rv)\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.RETURNN then\n      local n = arg\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      for k = 1, n do push(vals[k]) end\n      push(n)\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.STOREMULTI then\n      local slots = arg\n      local n = pop()\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      for k = 1, #slots do frame[slots[k]] = vals[k] end\n\n    elseif op == OP.VARARG then\n      local startSlot = arg\n      local t = {}\n      local n = 0\n      local k = startSlot\n      while frame[k] ~= nil do n = n + 1; t[n] = frame[k]; k = k + 1 end\n      push(t)\n\n    elseif op == OP.HALT then break\n    else error("hindi kilalang opcode: " .. tostring(op)) end\n\n    ip = ip + 1\n    ::continue::\n  end\nend\n\nreturn { run = run, checksumOf = checksumOf }\n'
-      //  luripe.js  â€”  Luripe AUTO-BUNDLER (FINAL: kompletong feature set)
-      //
-      //  Kukuha ng input .lua source at magbubuo ng iisang self-contained protected
-      //  .lua file. Sinusuportahan: variables, math, strings, if/elseif/else, while,
-      //  for, functions, tables, string concat (..), built-ins, at anti-tamper.
-      //
-      //  Gamitin:
-      //    node luripe.js input.lua              -> input.protected.lua
-      //    node luripe.js input.lua out.lua      -> custom output name
-      //
-      //  Kailangan:  npm install luaparse
+      const LURIPE_VM_SOURCE = "--[[\n  vm.lua - Luripe runtime virtual machine (Lua-in-Lua)\n  Rolling cipher + constant pool edition.\n    - Rolling string decode: position/chain-dependent keystream.\n        ks_i = seed ~ (i * PRIME) ~ prev_encoded\n        char = ((e_i ~ ks_i) & 0xFF) - OFFSET ; prev := e_i\n      encoded[1] is the per-string SEED.\n    - LOADK: numeric constants come from the CONSTS pool (also encoded).\n  Usage: VM.run(program, OPMAP, checksum, CONSTS)\n]]\n\nlocal KEY, OFFSET = 0x5A, 7\nlocal PRIME, CMASK = 167, 0xFF\n\nlocal function decodeString(encoded)\n  local seed = encoded[1]\n  local prev = seed\n  local chars = {}\n  for i = 2, #encoded do\n    local e = encoded[i]\n    local ks = (seed ~ ((i - 1) * PRIME) ~ prev) & CMASK\n    local c = ((e ~ ks) & CMASK) - OFFSET\n    if c < 0 then c = c + 256 end\n    chars[i - 1] = string.char(c & CMASK)\n    prev = e\n  end\n  return table.concat(chars)\nend\n\nlocal function decodeNumber(encoded)\n  return tonumber(decodeString(encoded))\nend\n\nlocal BUILTINS = {\n  [1]  = function(a) return math.floor(a[1]) end,\n  [2]  = function(a) return math.ceil(a[1]) end,\n  [3]  = function(a) return math.abs(a[1]) end,\n  [4]  = function(a) return math.max(a[1], a[2]) end,\n  [5]  = function(a) return math.min(a[1], a[2]) end,\n  [6]  = function(a) return string.upper(a[1]) end,\n  [7]  = function(a) return string.lower(a[1]) end,\n  [8]  = function(a) return #a[1] end,\n  [9]  = function(a) return string.rep(a[1], a[2]) end,\n  [10] = function(a) return tostring(a[1]) end,\n  [11] = function(a) return tonumber(a[1]) end,\n  [12] = function(a) table.insert(a[1], a[2]); return 0 end,\n  [13] = function(a) return math.sqrt(a[1]) end,\n  [14] = function(a) return math.random(a[1], a[2]) end,\n  [15] = function(a) return a[1] ^ a[2] end,\n  [16] = function(a) return string.sub(a[1], a[2], a[3]) end,\n  [17] = function(a) return string.format(a[1], a[2], a[3], a[4]) end,\n  [18] = function(a) return string.reverse(a[1]) end,\n  [19] = function(a) return string.byte(a[1], a[2]) end,\n  [20] = function(a) return string.char(a[1]) end,\n  [21] = function(a) return table.remove(a[1], a[2]) end,\n  [22] = function(a) return table.concat(a[1], a[2] or \"\") end,\n  [23] = function(a) return type(a[1]) end,\n  [24] = function(a) return math.sin(a[1]) end,\n  [25] = function(a) return math.cos(a[1]) end,\n}\n\nlocal function checksumOf(program)\n  local sum = 0\n  for i = 1, #program do\n    local inst = program[i]\n    sum = (sum + inst[1] * i) % 1000003\n    if type(inst[2]) == \"number\" then sum = (sum + inst[2]) % 1000003 end\n  end\n  return sum\nend\n\nlocal function run(program, OP, expectedChecksum, CONSTS)\n  if expectedChecksum ~= nil and checksumOf(program) ~= expectedChecksum then\n    error(\"Luripe: tampering detected\")\n  end\n\n  local K = {}\n  if CONSTS then\n    for i = 1, #CONSTS do K[i - 1] = decodeNumber(CONSTS[i]) end\n  end\n\n  local stack, sp = {}, 0\n  local function push(v) sp = sp + 1; stack[sp] = v end\n  local function pop() local v = stack[sp]; stack[sp] = nil; sp = sp - 1; return v end\n\n  local frame = {}\n  local upvals = {}\n  local callStack, csTop = {}, 0\n  local ip = 1\n\n  while ip <= #program do\n    local inst = program[ip]\n    local op, arg = inst[1], inst[2]\n\n    if op == OP.PUSH then push(arg)\n    elseif op == OP.LOADK then push(K[arg])\n    elseif op == OP.POP then pop()\n    elseif op == OP.ADD then local b = pop(); local a = pop(); push(a + b)\n    elseif op == OP.SUB then local b = pop(); local a = pop(); push(a - b)\n    elseif op == OP.MUL then local b = pop(); local a = pop(); push(a * b)\n    elseif op == OP.DIV then local b = pop(); local a = pop(); push(a / b)\n    elseif op == OP.MOD then local b = pop(); local a = pop(); push(a % b)\n    elseif op == OP.PRINT then print(stack[sp])\n    elseif op == OP.DUP then push(stack[sp])\n    elseif op == OP.STORE then frame[arg] = pop()\n    elseif op == OP.LOAD then push(frame[arg])\n    elseif op == OP.PUSHSTR then push(decodeString(arg))\n    elseif op == OP.CONCAT then local b = pop(); local a = pop(); push(tostring(a) .. tostring(b))\n    elseif op == OP.LT then local b = pop(); local a = pop(); push(a <  b and 1 or 0)\n    elseif op == OP.GT then local b = pop(); local a = pop(); push(a >  b and 1 or 0)\n    elseif op == OP.LE then local b = pop(); local a = pop(); push(a <= b and 1 or 0)\n    elseif op == OP.GE then local b = pop(); local a = pop(); push(a >= b and 1 or 0)\n    elseif op == OP.EQ then local b = pop(); local a = pop(); push(a == b and 1 or 0)\n    elseif op == OP.NE then local b = pop(); local a = pop(); push(a ~= b and 1 or 0)\n    elseif op == OP.JMP then ip = arg; goto continue\n    elseif op == OP.JZ then local top = pop(); if top == 0 then ip = arg; goto continue end\n    elseif op == OP.NEWTABLE then push({})\n    elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v\n    elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])\n    elseif op == OP.TLEN then local t = pop(); push(#t)\n    elseif op == OP.NOT then local a = pop(); push((a == 0 or a == false or a == nil) and 1 or 0)\n\n    elseif op == OP.BUILTIN then\n      local id, argc = arg[1], arg[2]\n      local args = {}\n      for k = argc, 1, -1 do args[k] = pop() end\n      push(BUILTINS[id](args))\n\n    elseif op == OP.CALL then\n      local funcAddr, argc = arg[1], arg[2]\n      local newFrame = {}\n      for k = argc - 1, 0, -1 do newFrame[k] = pop() end\n      csTop = csTop + 1\n      callStack[csTop] = { retIp = ip + 1, frame = frame }\n      frame = newFrame\n      ip = funcAddr\n      goto continue\n    elseif op == OP.RETURN then\n      local rv = pop()\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      push(rv)\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.RETURNN then\n      local n = arg\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      local caller = callStack[csTop]\n      callStack[csTop] = nil\n      csTop = csTop - 1\n      frame = caller.frame\n      for k = 1, n do push(vals[k]) end\n      push(n)\n      ip = caller.retIp\n      goto continue\n\n    elseif op == OP.STOREMULTI then\n      local slots = arg\n      local n = pop()\n      local vals = {}\n      for k = n, 1, -1 do vals[k] = pop() end\n      for k = 1, #slots do frame[slots[k]] = vals[k] end\n\n    elseif op == OP.VARARG then\n      local startSlot = arg\n      local t = {}\n      local n = 0\n      local k = startSlot\n      while frame[k] ~= nil do n = n + 1; t[n] = frame[k]; k = k + 1 end\n      push(t)\n\n    elseif op == OP.HALT then break\n    else error(\"hindi kilalang opcode: \" .. tostring(op)) end\n\n    ip = ip + 1\n    ::continue::\n  end\nend\n\nreturn { run = run, checksumOf = checksumOf }\n";
 
-      // ================= config =================
-      const KEY = 0x5a,
-        OFFSET = 7;
-      const HARDENING = true; // junk instructions ON
+      const OFFSET = 7, PRIME = 167, CMASK = 0xff, HARDENING = true;
 
-      function encodeString(str, idx) {
-        // Per-string key: bawat string may sariling random key na naka-embed sa unahan
-        // ng encoded array. Format: { key, byte1, byte2, ... }. Walang iisang key
-        // na gagana sa lahat â€” mas mahirap i-dump.
-        const key = 1 + Math.floor(Math.random() * 254);
-        const out = [key];
-        for (let i = 0; i < str.length; i++)
-          out.push((str.charCodeAt(i) + OFFSET) ^ key);
+      function encodeString(str) {
+        const seed = 1 + Math.floor(Math.random() * 254);
+        const out = [seed];
+        let prev = seed;
+        for (let i = 0; i < str.length; i++) {
+          const c = str.charCodeAt(i);
+          const ks = (seed ^ ((i + 1) * PRIME) ^ prev) & CMASK;
+          const e = ((c + OFFSET) & CMASK) ^ ks;
+          out.push(e);
+          prev = e;
+        }
         return out;
       }
+      function encodeNumber(n) { return encodeString(String(n)); }
 
       const OPS = [
-        "PUSH",
-        "ADD",
-        "SUB",
-        "MUL",
-        "PRINT",
-        "JMP",
-        "JZ",
-        "DUP",
-        "HALT",
-        "STORE",
-        "LOAD",
-        "DIV",
-        "PUSHSTR",
-        "POP",
-        "LT",
-        "GT",
-        "LE",
-        "GE",
-        "EQ",
-        "NE",
-        "CALL",
-        "RETURN",
-        "NEWTABLE",
-        "SETTABLE",
-        "GETTABLE",
-        "CONCAT",
-        "BUILTIN",
-        "TLEN",
-        "MOD",
-        "RETURNN",
-        "STOREMULTI",
-        "VARARG",
-        "NOT",
-        "NEWCELL",
-        "LOADCELL",
-        "STORECELL",
-        "LOADUP",
-        "STOREUP",
-        "CLOSURE",
-        "CALLC",
+        "PUSH","ADD","SUB","MUL","PRINT","JMP","JZ","DUP","HALT","STORE",
+        "LOAD","DIV","PUSHSTR","POP","LT","GT","LE","GE","EQ","NE","CALL",
+        "RETURN","NEWTABLE","SETTABLE","GETTABLE","CONCAT","BUILTIN","TLEN",
+        "MOD","RETURNN","STOREMULTI","VARARG","NOT","NEWCELL","LOADCELL",
+        "STORECELL","LOADUP","STOREUP","CLOSURE","CALLC","LOADK",
       ];
       function buildOpcodeMap() {
         const nums = [];
@@ -535,205 +489,81 @@ end</textarea
           [nums[i], nums[j]] = [nums[j], nums[i]];
         }
         const map = {};
-        OPS.forEach((name, i) => {
-          map[name] = nums[i];
-        });
+        OPS.forEach((name, i) => { map[name] = nums[i]; });
         return map;
       }
 
       const BUILTIN_IDS = {
-        "math.floor": { id: 1, argc: 1 },
-        "math.ceil": { id: 2, argc: 1 },
-        "math.abs": { id: 3, argc: 1 },
-        "math.max": { id: 4, argc: 2 },
-        "math.min": { id: 5, argc: 2 },
-        "string.upper": { id: 6, argc: 1 },
-        "string.lower": { id: 7, argc: 1 },
-        "string.len": { id: 8, argc: 1 },
-        "string.rep": { id: 9, argc: 2 },
-        tostring: { id: 10, argc: 1 },
-        tonumber: { id: 11, argc: 1 },
-        "table.insert": { id: 12, argc: 2 },
-        // === BAGO ===
-        "math.sqrt": { id: 13, argc: 1 },
-        "math.random": { id: 14, argc: 2 },
-        "math.pow": { id: 15, argc: 2 },
-        "string.sub": { id: 16, argc: 3 },
-        "string.format": { id: 17, argc: 4 },
-        "string.reverse": { id: 18, argc: 1 },
-        "string.byte": { id: 19, argc: 2 },
-        "string.char": { id: 20, argc: 1 },
-        "table.remove": { id: 21, argc: 2 },
-        "table.concat": { id: 22, argc: 2 },
-        type: { id: 23, argc: 1 },
-        "math.sin": { id: 24, argc: 1 },
+        "math.floor": { id: 1, argc: 1 }, "math.ceil": { id: 2, argc: 1 },
+        "math.abs": { id: 3, argc: 1 }, "math.max": { id: 4, argc: 2 },
+        "math.min": { id: 5, argc: 2 }, "string.upper": { id: 6, argc: 1 },
+        "string.lower": { id: 7, argc: 1 }, "string.len": { id: 8, argc: 1 },
+        "string.rep": { id: 9, argc: 2 }, tostring: { id: 10, argc: 1 },
+        tonumber: { id: 11, argc: 1 }, "table.insert": { id: 12, argc: 2 },
+        "math.sqrt": { id: 13, argc: 1 }, "math.random": { id: 14, argc: 2 },
+        "math.pow": { id: 15, argc: 2 }, "string.sub": { id: 16, argc: 3 },
+        "string.format": { id: 17, argc: 4 }, "string.reverse": { id: 18, argc: 1 },
+        "string.byte": { id: 19, argc: 2 }, "string.char": { id: 20, argc: 1 },
+        "table.remove": { id: 21, argc: 2 }, "table.concat": { id: 22, argc: 2 },
+        type: { id: 23, argc: 1 }, "math.sin": { id: 24, argc: 1 },
         "math.cos": { id: 25, argc: 1 },
       };
 
-      // ================= compiler =================
       function compile(source) {
         const OP = buildOpcodeMap();
         const ast = luaparse.parse(source);
         const bytecode = [];
+
+        const constPool = [];
+        const constIndex = new Map();
+        const constFor = (value) => {
+          if (constIndex.has(value)) return constIndex.get(value);
+          const idx = constPool.length;
+          constPool.push(encodeNumber(value));
+          constIndex.set(value, idx);
+          return idx;
+        };
+        const emitNumber = (value) => emit(OP.LOADK, constFor(value));
+
         const emit = (op, arg) => {
           bytecode.push(arg === undefined ? { op } : { op, arg });
           return bytecode.length - 1;
         };
-        const patch = (index, target) => {
-          bytecode[index].arg = target;
-        };
+        const patch = (index, target) => { bytecode[index].arg = target; };
         const here = () => bytecode.length + 1;
 
         const functions = {};
         let scope = {};
-        let pendingClosures = [];
         let varargSlot = 0;
         let nextSlot = 0;
-        const pushScope = () => {
-          scope = {};
-          nextSlot = 0;
-        };
         const slotFor = (name) => {
           if (scope[name] === undefined) scope[name] = nextSlot++;
           return scope[name];
         };
 
-        const CMP = {
-          "<": "LT",
-          ">": "GT",
-          "<=": "LE",
-          ">=": "GE",
-          "==": "EQ",
-          "~=": "NE",
-        };
+        const CMP = { "<": "LT", ">": "GT", "<=": "LE", ">=": "GE", "==": "EQ", "~=": "NE" };
         const emitJunk = () => {
-          if (HARDENING) {
-            emit(OP.PUSH, Math.floor(Math.random() * 99999));
-            emit(OP.POP);
-          }
+          if (HARDENING) { emitNumber(Math.floor(Math.random() * 99999)); emit(OP.POP); }
         };
 
         function builtinName(node) {
-          if (
-            node.type === "MemberExpression" &&
-            node.base.type === "Identifier"
-          )
+          if (node.type === "MemberExpression" && node.base.type === "Identifier")
             return node.base.name + "." + node.identifier.name;
           if (node.type === "Identifier") return node.name;
           return null;
         }
 
-        // === CLOSURES ===
-        // Kolektahin ang lahat ng Identifier na ginamit sa isang function body.
-        function collectNames(node, out) {
-          if (!node || typeof node !== "object") return;
-          if (Array.isArray(node)) {
-            for (const n of node) collectNames(n, out);
-            return;
-          }
-          if (node.type === "Identifier") out.add(node.name);
-          for (const k in node) {
-            if (k === "type" || k === "__qname" || k === "__isMethod") continue;
-            collectNames(node[k], out);
-          }
-        }
-        // Ang mga slots na kailangang gawing CELL (kasi na-capture ng closure).
-        // scope.__cells = Set ng slot numbers na cell.
-        function markCell(name) {
-          const slot = slotFor(name);
-          if (!scope.__cells) scope.__cells = new Set();
-          scope.__cells.add(slot);
-          return slot;
-        }
-        function isCell(name) {
-          return (
-            scope.__cells &&
-            scope[name] !== undefined &&
-            scope.__cells.has(scope[name])
-          );
-        }
-
-        // I-compile ang isang inner function (FunctionExpression) bilang closure.
-        // TAMANG MODEL (Lua paper + Crafting Interpreters): i-compile ang body INLINE
-        // habang tama pa ang enclosing scope â€” hindi deferred (na sumisira sa scope timing).
-        // May JMP-over para hindi tumakbo ang body bilang inline code.
-        function compileFunctionExpr(node) {
-          // Alamin kung anong outer-scope names ang ginagamit sa loob
-          const used = new Set();
-          collectNames(node.body, used);
-          const outerScope = scope;
-          const captures = []; // { name, outerSlot }
-          for (const name of used) {
-            // HUWAG i-capture ang named functions â€” sila ay by-address (CLOSURE [addr]),
-            // hindi cells. Ang pag-capture sa kanila ang sanhi ng NEWCELL-bago-CALL bug.
-            if (functions[name]) continue;
-            if (
-              outerScope[name] !== undefined &&
-              typeof outerScope[name] === "number"
-            ) {
-              if (!outerScope.__cells) outerScope.__cells = new Set();
-              outerScope.__cells.add(outerScope[name]);
-              captures.push({ name, outerSlot: outerScope[name] });
-            }
-          }
-          // Emit CLOSURE na tumutukoy sa body address (isusulat pagkatapos i-compile ang body)
-          const closureInstr = emit(OP.CLOSURE, [
-            0,
-            captures.map((c) => c.outerSlot),
-          ]);
-          // JMP para laktawan ang inline body
-          const jmpOver = emit(OP.JMP, 0);
-          const bodyAddr = here();
-          bytecode[closureInstr].arg = [
-            bodyAddr,
-            captures.map((c) => c.outerSlot),
-          ];
-
-          // I-compile ang body sa BAGONG scope (captures = upvalues by order)
-          const savedScope = scope,
-            savedNextSlot = nextSlot,
-            savedVararg = varargSlot;
-          scope = {};
-          nextSlot = 0;
-          varargSlot = 0;
-          scope.__upvals = {};
-          captures.forEach((c, i) => {
-            scope.__upvals[c.name] = i;
-          });
-          for (const p of node.parameters) {
-            if (p.type === "VarargLiteral") varargSlot = nextSlot;
-            else slotFor(p.name);
-          }
-          compileBlock(node.body);
-          emit(OP.PUSH, 0);
-          emit(OP.RETURN);
-          // ibalik ang enclosing scope
-          scope = savedScope;
-          nextSlot = savedNextSlot;
-          varargSlot = savedVararg;
-          patch(jmpOver, here());
-        }
-
         function compileExpr(node) {
           if (node.type === "NumericLiteral") {
-            emit(OP.PUSH, node.value);
+            emitNumber(node.value);
           } else if (node.type === "StringLiteral") {
             let str = node.value;
             if (str === null || str === undefined) str = node.raw.slice(1, -1);
             emit(OP.PUSHSTR, encodeString(str));
           } else if (node.type === "Identifier") {
-            // Upvalue? (na-capture mula sa outer scope ng closure)
-            if (scope.__upvals && scope.__upvals[node.name] !== undefined) {
-              emit(OP.LOADUP, scope.__upvals[node.name]);
-            } else {
-              const slot = scope[node.name];
-              if (slot === undefined)
-                throw new Error("hindi pa naka-declare: " + node.name);
-              // Cell? (na-capture ng inner closure) -> LOADCELL
-              if (scope.__cells && scope.__cells.has(slot))
-                emit(OP.LOADCELL, slot);
-              else emit(OP.LOAD, slot);
-            }
+            const slot = scope[node.name];
+            if (slot === undefined) throw new Error("hindi pa naka-declare: " + node.name);
+            emit(OP.LOAD, slot);
           } else if (node.type === "BinaryExpression") {
             compileExpr(node.left);
             compileExpr(node.right);
@@ -742,458 +572,182 @@ end</textarea
             else if (o === "-") emit(OP.SUB);
             else if (o === "*") emit(OP.MUL);
             else if (o === "/") emit(OP.DIV);
+            else if (o === "%") emit(OP.MOD);
             else if (o === "..") emit(OP.CONCAT);
             else if (CMP[o]) emit(OP[CMP[o]]);
             else throw new Error("hindi sinusuportahan ang operator: " + o);
           } else if (node.type === "CallExpression") {
             compileCall(node);
           } else if (node.type === "TableConstructorExpression") {
-            // Espesyal: { ... }  -> kolektahin ang varargs (VARARG opcode) direkta
-            if (
-              node.fields.length === 1 &&
-              node.fields[0].type === "TableValue" &&
-              node.fields[0].value.type === "VarargLiteral"
-            ) {
-              emit(OP.VARARG, varargSlot); // varargSlot = simula ng extra args sa frame
-              return;
-            }
             emit(OP.NEWTABLE);
             let arrayIndex = 1;
             for (const field of node.fields) {
               if (field.type === "TableValue") {
-                emit(OP.DUP);
-                emit(OP.PUSH, arrayIndex++);
-                compileExpr(field.value);
-                emit(OP.SETTABLE);
+                emit(OP.DUP); emitNumber(arrayIndex++); compileExpr(field.value); emit(OP.SETTABLE);
               } else if (field.type === "TableKeyString") {
-                emit(OP.DUP);
-                emit(OP.PUSHSTR, encodeString(field.key.name));
-                compileExpr(field.value);
-                emit(OP.SETTABLE);
-              } else
-                throw new Error(
-                  "hindi pa sinusuportahan ang table field: " + field.type,
-                );
+                emit(OP.DUP); emit(OP.PUSHSTR, encodeString(field.key.name)); compileExpr(field.value); emit(OP.SETTABLE);
+              } else throw new Error("hindi pa sinusuportahan ang table field: " + field.type);
             }
           } else if (node.type === "IndexExpression") {
-            compileExpr(node.base);
-            compileExpr(node.index);
-            emit(OP.GETTABLE);
+            compileExpr(node.base); compileExpr(node.index); emit(OP.GETTABLE);
           } else if (node.type === "MemberExpression") {
-            compileExpr(node.base);
-            emit(OP.PUSHSTR, encodeString(node.identifier.name));
-            emit(OP.GETTABLE);
+            compileExpr(node.base); emit(OP.PUSHSTR, encodeString(node.identifier.name)); emit(OP.GETTABLE);
           } else if (node.type === "UnaryExpression") {
-            // -x, not x, #t
-            if (node.operator === "-") {
-              emit(OP.PUSH, 0);
-              compileExpr(node.argument);
-              emit(OP.SUB); // 0 - x
-            } else if (node.operator === "not") {
-              compileExpr(node.argument);
-              emit(OP.NOT);
-            } else if (node.operator === "#") {
-              compileExpr(node.argument);
-              emit(OP.TLEN);
-            } else
-              throw new Error(
-                "hindi sinusuportahan ang unary operator: " + node.operator,
-              );
-          } else if (node.type === "FunctionDeclaration" && !node.identifier) {
-            // Anonymous function / closure â€” HINDI PA sinusuportahan nang matatag.
-            // Sa halip na mag-emit ng sirang bytecode, mag-warning at mag-push ng 0.
-            console.warn(
-              "[Luripe] babala: nilaktawan ang closure (function() ... end) â€” hindi pa suportado.",
-            );
-            emit(OP.PUSH, 0);
-          } else
-            throw new Error(
-              "hindi sinusuportahan ang expression: " + node.type,
-            );
+            if (node.operator === "-") { emitNumber(0); compileExpr(node.argument); emit(OP.SUB); }
+            else if (node.operator === "not") { compileExpr(node.argument); emit(OP.NOT); }
+            else if (node.operator === "#") { compileExpr(node.argument); emit(OP.TLEN); }
+            else throw new Error("hindi sinusuportahan ang unary operator: " + node.operator);
+          } else throw new Error("hindi sinusuportahan ang expression: " + node.type);
         }
 
         function compileCall(node) {
-          if (
-            node.base &&
-            node.base.type === "Identifier" &&
-            node.base.name === "print"
-          ) {
-            compileExpr(node.arguments[0]);
-            emit(OP.PRINT);
-            return;
+          if (node.base && node.base.type === "Identifier" && node.base.name === "print") {
+            compileExpr(node.arguments[0]); emit(OP.PRINT); return;
           }
           const bname = builtinName(node.base);
           if (bname && BUILTIN_IDS[bname]) {
             const b = BUILTIN_IDS[bname];
             for (const a of node.arguments) compileExpr(a);
-            emit(OP.BUILTIN, [b.id, node.arguments.length]);
-            return;
+            emit(OP.BUILTIN, [b.id, node.arguments.length]); return;
           }
-          // Method call na may colon: d:speak(x)  ->  speak(d, x), self=d
-          if (
-            node.base &&
-            node.base.type === "MemberExpression" &&
-            node.base.indexer === ":"
-          ) {
-            const methodKey = node.base.identifier.name;
-            let fn = null;
-            for (const qname in functions) {
-              if (qname.endsWith("." + methodKey)) {
-                fn = functions[qname];
-                break;
-              }
-            }
-            if (!fn) throw new Error("hindi kilalang method: " + methodKey);
-            compileExpr(node.base.base); // self
-            for (const a of node.arguments) compileExpr(a);
-            emit(OP.CALL, [fn.addr, node.arguments.length + 1]); // +1 para sa self
-            return;
-          }
-          // Qualified call: Dog.new(x)
-          if (
-            node.base &&
-            node.base.type === "MemberExpression" &&
-            node.base.indexer === "."
-          ) {
-            const qname = node.base.base.name + "." + node.base.identifier.name;
-            const fn = functions[qname];
-            if (!fn) throw new Error("hindi kilalang function: " + qname);
-            for (const a of node.arguments) compileExpr(a);
-            emit(OP.CALL, [fn.addr, node.arguments.length]);
-            return;
-          }
-          // Plain call: foo(x)
           const fnName = node.base && node.base.name;
           const fn = functions[fnName];
-          if (!fn)
-            throw new Error("hindi kilalang function: " + (fnName || bname));
+          if (!fn) throw new Error("hindi kilalang function: " + (fnName || bname));
           for (const a of node.arguments) compileExpr(a);
           emit(OP.CALL, [fn.addr, node.arguments.length]);
         }
 
         function compileAssignTarget(target, valueEmitter) {
           if (target.type === "Identifier") {
-            // Upvalue? -> STOREUP
-            if (scope.__upvals && scope.__upvals[target.name] !== undefined) {
-              valueEmitter();
-              emit(OP.STOREUP, scope.__upvals[target.name]);
-            } else {
-              const slot = slotFor(target.name);
-              valueEmitter();
-              // Cell? (na-capture ng inner closure) -> STORECELL
-              if (scope.__cells && scope.__cells.has(slot))
-                emit(OP.STORECELL, slot);
-              else emit(OP.STORE, slot);
-            }
+            const slot = slotFor(target.name); valueEmitter(); emit(OP.STORE, slot);
           } else if (target.type === "IndexExpression") {
-            compileExpr(target.base);
-            compileExpr(target.index);
-            valueEmitter();
-            emit(OP.SETTABLE);
+            compileExpr(target.base); compileExpr(target.index); valueEmitter(); emit(OP.SETTABLE);
           } else if (target.type === "MemberExpression") {
-            compileExpr(target.base);
-            emit(OP.PUSHSTR, encodeString(target.identifier.name));
-            valueEmitter();
-            emit(OP.SETTABLE);
-          } else
-            throw new Error(
-              "hindi sinusuportahan ang assignment target: " + target.type,
-            );
+            compileExpr(target.base); emit(OP.PUSHSTR, encodeString(target.identifier.name)); valueEmitter(); emit(OP.SETTABLE);
+          } else throw new Error("hindi sinusuportahan ang assignment target: " + target.type);
         }
 
         function compileBlock(body) {
-          for (const stmt of body) {
-            emitJunk();
-            compileStatement(stmt);
-          }
+          for (const stmt of body) { emitJunk(); compileStatement(stmt); }
         }
 
         function compileStatement(node) {
           if (node.type === "LocalStatement") {
-            // Multi-value mula sa isang function call: local a, b = f()  -> STOREMULTI
-            if (
-              node.variables.length > 1 &&
-              node.init.length === 1 &&
-              node.init[0] &&
-              node.init[0].type === "CallExpression"
-            ) {
-              compileCall(node.init[0]); // nag-iiwan ng values + count sa stack
-              const slots = node.variables.map((v) => slotFor(v.name));
-              emit(OP.STOREMULTI, slots);
-            } else {
-              for (let i = 0; i < node.variables.length; i++) {
-                const name = node.variables[i].name;
-                if (node.init[i]) compileExpr(node.init[i]);
-                else emit(OP.PUSH, 0);
-                emit(OP.STORE, slotFor(name));
-              }
+            for (let i = 0; i < node.variables.length; i++) {
+              const name = node.variables[i].name;
+              if (node.init[i]) compileExpr(node.init[i]); else emitNumber(0);
+              emit(OP.STORE, slotFor(name));
             }
           } else if (node.type === "AssignmentStatement") {
-            // Multi-value: a, b = f()
-            if (
-              node.variables.length > 1 &&
-              node.init.length === 1 &&
-              node.init[0] &&
-              node.init[0].type === "CallExpression" &&
-              node.variables.every((v) => v.type === "Identifier")
-            ) {
-              compileCall(node.init[0]);
-              const slots = node.variables.map((v) => slotFor(v.name));
-              emit(OP.STOREMULTI, slots);
-            } else {
-              for (let i = 0; i < node.variables.length; i++)
-                compileAssignTarget(node.variables[i], () =>
-                  compileExpr(node.init[i]),
-                );
-            }
+            for (let i = 0; i < node.variables.length; i++)
+              compileAssignTarget(node.variables[i], () => compileExpr(node.init[i]));
           } else if (node.type === "CallStatement") {
             compileCall(node.expression);
-            const isPrint =
-              node.expression.base && node.expression.base.name === "print";
-            if (!isPrint) emit(OP.POP);
-          } else if (node.type === "ReturnStatement") {
-            // Multiple return: return a, b, c
-            if (node.arguments.length > 1) {
-              for (const a of node.arguments) compileExpr(a);
-              emit(OP.RETURNN, node.arguments.length);
-            } else {
-              if (node.arguments.length) compileExpr(node.arguments[0]);
-              else emit(OP.PUSH, 0);
-              emit(OP.RETURN);
-            }
           } else if (node.type === "IfStatement") {
             const endJumps = [];
             for (const clause of node.clauses) {
-              if (clause.type === "ElseClause") compileBlock(clause.body);
-              else {
-                compileExpr(clause.condition);
-                const jz = emit(OP.JZ, 0);
-                compileBlock(clause.body);
-                endJumps.push(emit(OP.JMP, 0));
-                patch(jz, here());
-              }
+              if (clause.type === "ElseClause") { compileBlock(clause.body); continue; }
+              compileExpr(clause.condition);
+              const jz = emit(OP.JZ, 0);
+              compileBlock(clause.body);
+              endJumps.push(emit(OP.JMP, 0));
+              patch(jz, here());
             }
-            const endIf = here();
-            for (const j of endJumps) patch(j, endIf);
+            for (const j of endJumps) patch(j, here());
           } else if (node.type === "WhileStatement") {
-            const loopTop = here();
+            const top = here();
             compileExpr(node.condition);
             const jz = emit(OP.JZ, 0);
             compileBlock(node.body);
-            emit(OP.JMP, loopTop);
+            emit(OP.JMP, top);
             patch(jz, here());
-          } else if (node.type === "ForNumericStatement") {
+          } else if (node.type === "NumericForStatement") {
             const varSlot = slotFor(node.variable.name);
-            compileExpr(node.start);
-            emit(OP.STORE, varSlot);
-            const loopTop = here();
-            emit(OP.LOAD, varSlot);
-            compileExpr(node.end);
-            emit(OP.LE);
+            compileExpr(node.start); emit(OP.STORE, varSlot);
+            const limitSlot = nextSlot++;
+            compileExpr(node.end); emit(OP.STORE, limitSlot);
+            const stepSlot = nextSlot++;
+            if (node.step) compileExpr(node.step); else emitNumber(1);
+            emit(OP.STORE, stepSlot);
+            const top = here();
+            emit(OP.LOAD, varSlot); emit(OP.LOAD, limitSlot); emit(OP.LE);
             const jz = emit(OP.JZ, 0);
             compileBlock(node.body);
-            emit(OP.LOAD, varSlot);
-            if (node.step) compileExpr(node.step);
-            else emit(OP.PUSH, 1);
-            emit(OP.ADD);
-            emit(OP.STORE, varSlot);
-            emit(OP.JMP, loopTop);
+            emit(OP.LOAD, varSlot); emit(OP.LOAD, stepSlot); emit(OP.ADD); emit(OP.STORE, varSlot);
+            emit(OP.JMP, top);
             patch(jz, here());
           } else if (node.type === "ForGenericStatement") {
-            // for k, v in ipairs(t) do ... end   /   for k, v in pairs(t) do ... end
-            // Ginagawa nating index-based loop: idx=0; idx=idx+1; while idx<=#t;
-            //   k=idx, v=t[idx].  (ipairs at pairs = pareho ang trato dito para sa array tables)
-            const iter = node.iterators[0]; // CallExpression: ipairs(t) / pairs(t)
-            if (
-              iter.type !== "CallExpression" ||
-              !iter.base ||
-              (iter.base.name !== "ipairs" && iter.base.name !== "pairs")
-            ) {
-              throw new Error(
-                "suportado lang ang ipairs()/pairs() sa generic for",
-              );
-            }
-            // i-store ang table sa isang hidden slot
-            const tblSlot = slotFor("__for_t_" + here());
-            compileExpr(iter.arguments[0]);
-            emit(OP.STORE, tblSlot);
-            // idx hidden slot
-            const idxSlot = slotFor("__for_i_" + here());
-            emit(OP.PUSH, 0);
-            emit(OP.STORE, idxSlot);
-            // key/value variables
-            const keyVar = node.variables[0]
-              ? slotFor(node.variables[0].name)
-              : null;
-            const valVar = node.variables[1]
-              ? slotFor(node.variables[1].name)
-              : null;
-            const loopTop = here();
-            emit(OP.LOAD, idxSlot);
-            emit(OP.PUSH, 1);
-            emit(OP.ADD);
-            emit(OP.STORE, idxSlot); // idx++
-            emit(OP.LOAD, idxSlot);
-            emit(OP.LOAD, tblSlot);
-            emit(OP.TLEN);
-            emit(OP.LE); // idx <= #t
+            const iterCall = node.iterators[0];
+            const tExpr = iterCall.arguments[0];
+            const tSlot = nextSlot++;
+            compileExpr(tExpr); emit(OP.STORE, tSlot);
+            const idxSlot = nextSlot++;
+            emitNumber(1); emit(OP.STORE, idxSlot);
+            const lenSlot = nextSlot++;
+            emit(OP.LOAD, tSlot); emit(OP.TLEN); emit(OP.STORE, lenSlot);
+            const keyVar = node.variables[0] ? slotFor(node.variables[0].name) : nextSlot++;
+            const valVar = node.variables[1] ? slotFor(node.variables[1].name) : nextSlot++;
+            const top = here();
+            emit(OP.LOAD, idxSlot); emit(OP.LOAD, lenSlot); emit(OP.LE);
             const jz = emit(OP.JZ, 0);
-            if (keyVar !== null) {
-              emit(OP.LOAD, idxSlot);
-              emit(OP.STORE, keyVar);
-            } // k = idx
-            if (valVar !== null) {
-              emit(OP.LOAD, tblSlot);
-              emit(OP.LOAD, idxSlot);
-              emit(OP.GETTABLE);
-              emit(OP.STORE, valVar);
-            } // v = t[idx]
+            emit(OP.LOAD, idxSlot); emit(OP.STORE, keyVar);
+            emit(OP.LOAD, tSlot); emit(OP.LOAD, idxSlot); emit(OP.GETTABLE); emit(OP.STORE, valVar);
             compileBlock(node.body);
-            emit(OP.JMP, loopTop);
+            emit(OP.LOAD, idxSlot); emitNumber(1); emit(OP.ADD); emit(OP.STORE, idxSlot);
+            emit(OP.JMP, top);
             patch(jz, here());
-          } else {
-            // GRACEFUL: sa halip na mag-crash sa unsupported statement, mag-warning
-            // at i-skip ito. Tumatakbo pa rin ang natitirang script.
-            console.warn(
-              "[Luripe] babala: nilaktawan ang hindi sinusuportahang statement: " +
-                node.type,
-            );
-          }
-        }
-
-        // 2-pass: functions muna, tapos main
-        const funcNodes = [],
-          mainNodes = [];
-        // Helper: kunin ang qualified name mula sa function identifier.
-        //   foo            -> { name:"foo", isMethod:false }
-        //   Dog.new        -> { name:"Dog.new", isMethod:false }
-        //   Dog:speak      -> { name:"Dog.speak", isMethod:true }  (may implicit self)
-        function funcQualifiedName(id) {
-          if (!id) return null;
-          if (id.type === "Identifier")
-            return { name: id.name, isMethod: false };
-          if (id.type === "MemberExpression") {
-            // id.indexer ay "." o ":"
-            const base = id.base.name;
-            const key = id.identifier.name;
-            return { name: base + "." + key, isMethod: id.indexer === ":" };
-          }
-          return null;
-        }
-        for (const stmt of ast.body) {
-          const q =
-            stmt.type === "FunctionDeclaration"
-              ? funcQualifiedName(stmt.identifier)
-              : null;
-          if (q) {
-            stmt.__qname = q.name;
-            stmt.__isMethod = q.isMethod;
-            funcNodes.push(stmt);
-          } else mainNodes.push(stmt);
-        }
-        const skipToMain = emit(OP.JMP, 0);
-        for (const fn of funcNodes) {
-          functions[fn.__qname] = { addr: here(), isMethod: fn.__isMethod };
-          pushScope();
-          // Colon-declared method (Dog:speak) may implicit `self` bilang unang param (slot 0)
-          if (fn.__isMethod) slotFor("self");
-          for (const p of fn.parameters) {
-            if (p.type === "VarargLiteral") {
-              // function f(...) â€” ang extra args ay nagsisimula sa susunod na slot.
-              varargSlot = nextSlot;
-            } else {
-              slotFor(p.name);
+          } else if (node.type === "ReturnStatement") {
+            if (node.arguments.length === 0) { emitNumber(0); emit(OP.RETURN); }
+            else if (node.arguments.length === 1) { compileExpr(node.arguments[0]); emit(OP.RETURN); }
+            else { for (const a of node.arguments) compileExpr(a); emit(OP.RETURNN, node.arguments.length); }
+          } else if (node.type === "FunctionDeclaration" && node.identifier) {
+            const jmpOver = emit(OP.JMP, 0);
+            const addr = here();
+            const qname = node.identifier.name;
+            functions[qname] = { addr };
+            const savedScope = scope, savedNextSlot = nextSlot, savedVararg = varargSlot;
+            scope = {}; nextSlot = 0; varargSlot = 0;
+            for (const p of node.parameters) {
+              if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
             }
-          }
-          compileBlock(fn.body);
-          emit(OP.PUSH, 0);
-          emit(OP.RETURN);
-          varargSlot = 0; // reset pagkatapos ng function
+            compileBlock(node.body);
+            emitNumber(0); emit(OP.RETURN);
+            scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
+            patch(jmpOver, here());
+          } else if (node.type === "DoStatement") {
+            compileBlock(node.body);
+          } else throw new Error("hindi sinusuportahan ang statement: " + node.type);
         }
-        patch(skipToMain, here());
-        pushScope();
-        compileBlock(mainNodes);
+
+        compileBlock(ast.body);
         emit(OP.HALT);
-
-        // (Ang closures ay ni-compile na INLINE sa compileFunctionExpr â€” walang deferred pass.)
-
-        return { OP, bytecode };
+        return { OP, bytecode, constPool };
       }
 
-      // ================= anti-tamper checksum =================
       function checksumOf(bytecode) {
         let sum = 0;
         for (let i = 0; i < bytecode.length; i++) {
           const inst = bytecode[i];
-          sum = (sum + inst.op * (i + 1)) % 1000003;
+          const op = inst.op;
+          sum = (sum + op * (i + 1)) % 1000003;
           if (typeof inst.arg === "number") sum = (sum + inst.arg) % 1000003;
         }
         return sum;
       }
 
-      // ================= bundler =================
-      function bundle(OP, bytecode) {
-        const checksum = checksumOf(bytecode);
-        const opmapLua =
-          "local OPMAP = {\n" +
-          OPS.map((n) => `  ["${n}"] = ${OP[n]},`).join("\n") +
-          "\n}";
-        const programLua =
-          "local program = {\n" +
-          bytecode
-            .map((i) => {
-              if (i.arg === undefined) return `  { ${i.op} },`;
-              if (Array.isArray(i.arg))
-                return `  { ${i.op}, {${i.arg.join(",")}} },`;
-              return `  { ${i.op}, ${i.arg} },`;
-            })
-            .join("\n") +
-          "\n}";
-
-        return luraphBundle(OP, bytecode, LURIPE_VM_SOURCE, checksum);
-      }
-
-      // === LURAPH-STYLE OUTPUT: encoded blob + scrambled names + minified VM ===
       function minifyLua(src) {
-        src = src
-          .replace(/--\[\[[\s\S]*?\]\]/g, "") // block comments
-          .replace(/--[^\n]*/g, "") // line comments
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l.length)
-          .join(" ")
+        return src
+          .replace(/--\[\[[\s\S]*?\]\]/g, "")
+          .replace(/--[^\n]*/g, "")
+          .split("\n").map((l) => l.trim()).filter((l) => l.length).join(" ")
           .replace(/\s+/g, " ");
-        return src;
       }
-      // Scramble ang VM-internal local names (safe subset â€” hindi keywords/globals)
       function scrambleVM(vmMin) {
         const names = [
-          "decodeString",
-          "checksumOf",
-          "BUILTINS",
-          "callStack",
-          "csTop",
-          "newFrame",
-          "expectedChecksum",
-          "funcAddr",
-          "chars",
-          "encoded",
-          "vals",
-          "slots",
-          "startSlot",
-          "caller",
-          "loopTop",
-          "push",
-          "pop",
-          "frame",
-          "upvals",
-          "stack",
-          "program",
-          "inst",
-          "arg",
-          "argc",
-          "retIp",
-          "newTable",
+          "decodeString","decodeNumber","checksumOf","BUILTINS","callStack","csTop",
+          "newFrame","expectedChecksum","funcAddr","chars","encoded","vals","slots",
+          "startSlot","caller","push","pop","frame","upvals","stack","program","inst",
+          "argc","retIp","newTable",
         ];
         for (const nm of names) {
           const scrambled = "_" + Math.random().toString(36).slice(2, 7);
@@ -1201,119 +755,91 @@ end</textarea
         }
         return vmMin;
       }
-      function luraphBundle(OP, bytecode, vmRaw, checksum) {
-        // Decoy junk generator: gumagawa ng fake na Lua statements na walang epekto,
-        // pero mukhang mahalaga â€” para mapagulo ang sinumang magbabasa.
+
+      function bundle(OP, bytecode, constPool) {
+        const checksum = checksumOf(bytecode);
+        return luraphBundle(OP, bytecode, LURIPE_VM_SOURCE, checksum, constPool);
+      }
+
+      function luraphBundle(OP, bytecode, vmRaw, checksum, constPool) {
         const rn = () => "_" + Math.random().toString(36).slice(2, 7);
         function junkLine() {
-          const v = rn(),
-            w = rn(),
-            x = rn();
-          const a = Math.floor(Math.random() * 999),
-            b = Math.floor(Math.random() * 99) + 1;
+          const v = rn(), w = rn(), x = rn();
+          const a = Math.floor(Math.random() * 999), b = Math.floor(Math.random() * 99) + 1;
           const patterns = [
-            () => `local ${v}=${Math.floor(Math.random() * 99999)};`,
-            () => `local ${v}=function(${w}) return ${w} and ${a} or nil end;`,
-            () => `local ${v}={${a},${b},${Math.floor(Math.random() * 99)}};`,
-            () =>
-              `local ${v}=(${a}*${b})%${Math.floor(Math.random() * 97) + 3};`,
-            () => `local function ${v}(${w}) local ${x}=${w} return ${x} end;`,
-            () => `local ${v}="${Math.random().toString(36).slice(2, 10)}";`,
-            // OPAQUE PREDICATES â€” kondisyon na laging totoo/mali, mukhang dynamic:
-            () => `local ${v}=${a};if (${v}*${v})>=0 then ${v}=${v}+${b} end;`, // laging true
-            () => `local ${v}=${a};if (${v}%1)~=0 then ${v}=nil end;`, // laging false (integer)
-            () => `local ${v}=${b};while ${v}>${a + b} do ${v}=${v}-1 end;`, // hindi tumatakbo
-            () =>
-              `local ${v}=function() if (${a}+${b})>${a} then return ${a} end return ${b} end;`, // dead branch
+            () => "local " + v + "=" + Math.floor(Math.random() * 99999) + ";",
+            () => "local " + v + "=function(" + w + ") return " + w + " and " + a + " or nil end;",
+            () => "local " + v + "={" + a + "," + b + "," + Math.floor(Math.random() * 99) + "};",
+            () => "local " + v + "=(" + a + "*" + b + ")%" + (Math.floor(Math.random() * 97) + 3) + ";",
+            () => "local function " + v + "(" + w + ") local " + x + "=" + w + " return " + x + " end;",
+            () => "local " + v + "=\"" + Math.random().toString(36).slice(2, 10) + "\";",
+            () => "local " + v + "=" + a + ";if (" + v + "*" + v + ")>=0 then " + v + "=" + v + "+" + b + " end;",
+            () => "local " + v + "=" + a + ";if (" + v + "%1)~=0 then " + v + "=nil end;",
+            () => "local " + v + "=" + b + ";while " + v + ">" + (a + b) + " do " + v + "=" + v + "-1 end;",
           ];
           return patterns[Math.floor(Math.random() * patterns.length)]();
         }
         const junk = (n) => Array.from({ length: n }, junkLine).join("");
-        // 1. Flatten program -> number stream (op, tag, [args])
+
+        // Flatten program -> number stream (op, tag, [args])
         const nums = [];
         for (const inst of bytecode) {
           nums.push(inst.op);
           if (inst.arg === undefined) nums.push(0);
-          else if (Array.isArray(inst.arg))
-            nums.push(2, inst.arg.length, ...inst.arg);
+          else if (Array.isArray(inst.arg)) nums.push(2, inst.arg.length, ...inst.arg);
           else nums.push(1, inst.arg);
         }
-        // 2. RUNTIME-DERIVED MASK: galing sa sum ng opmap values (hindi hardcoded).
-        //    Kailangan i-compute ng attacker mula sa opmap bago ma-decode ang blob.
         const opValues = OPS.map((n) => OP[n]);
         let s = 0;
         for (const v of opValues) s = (s + v) % 97;
         const mask = (s % 64) + 1;
         const blob = nums.map((n) => n ^ mask).join(",");
-        // 3. Scrambled var names
-        const r = () => "_" + Math.random().toString(36).slice(2, 7);
-        const B = r(),
-          M = r(),
-          D = r(),
-          P = r(),
-          N = r(),
-          I = r(),
-          MK = r(),
-          SM = r();
-        const vmMin = scrambleVM(minifyLua(vmRaw));
-        const opmapNamed =
-          "{" + OPS.map((n) => `${n}=${OP[n]}`).join(",") + "}";
 
-        // 4. Buuin ang isang siksik na bloke â€” na may junk na nakakalat sa pagitan.
-        const KV = r(),
-          OV = r();
-        const vmKeyed = vmMin.replace(
-          /local KEY, OFFSET = 0x5A, 7/,
-          `local KEY,OFFSET=${KV},${OV}`,
-        );
+        // Constant pool serialized as a Lua table of tables (encoded numbers).
+        const constLua = "{" + constPool.map((c) => "{" + c.join(",") + "}").join(",") + "}";
+
+        const r = () => "_" + Math.random().toString(36).slice(2, 7);
+        const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r();
+        const vmMin = scrambleVM(minifyLua(vmRaw));
+        const opmapNamed = "{" + OPS.map((n) => n + "=" + OP[n]).join(",") + "}";
+        const KV = r(), OV = r();
+        const vmKeyed = vmMin.replace(/local KEY, OFFSET = 0x5A, 7/, "local KEY,OFFSET=" + KV + "," + OV);
+
         return (
           junk(4) +
-          `local ${M}=${opmapNamed};` +
+          "local " + M + "=" + opmapNamed + ";" +
           junk(3) +
-          `local ${SM}=0;for _,v in pairs(${M})do ${SM}=(${SM}+v)%97 end;local ${MK}=(${SM}%64)+1;` +
-          `local ${KV}=(45*2);local ${OV}=(14/2);` +
+          "local " + SM + "=0;for _,v in pairs(" + M + ")do " + SM + "=(" + SM + "+v)%97 end;local " + MK + "=(" + SM + "%64)+1;" +
+          "local " + KV + "=(45*2);local " + OV + "=(14/2);" +
           junk(3) +
-          `local ${B}="${blob}";` +
+          "local " + B + "=\"" + blob + "\";" +
+          "local " + C + "=" + constLua + ";" +
           junk(2) +
-          `local function ${D}(s)local r={}for m in s:gmatch("[^,]+")do r[#r+1]=tonumber(m)~${MK} end return r end;` +
-          `local ${N}=${D}(${B});` +
+          "local function " + D + "(s)local r={}for m in s:gmatch(\"[^,]+\")do r[#r+1]=tonumber(m)~" + MK + " end return r end;" +
+          "local " + N + "=" + D + "(" + B + ");" +
           junk(3) +
-          `local ${P}={}local ${I}=1;while ${I}<=#${N} do local o=${N}[${I}];${I}=${I}+1;local t=${N}[${I}];${I}=${I}+1;` +
-          `if t==0 then ${P}[#${P}+1]={o} elseif t==1 then ${P}[#${P}+1]={o,${N}[${I}]};${I}=${I}+1 else local l=${N}[${I}];${I}=${I}+1;local a={}for k=1,l do a[k]=${N}[${I}];${I}=${I}+1 end;${P}[#${P}+1]={o,a} end end;` +
-          vmKeyed +
-          ` ` +
-          `run(${P},${M},${checksum})`
+          "local " + P + "={}local " + I + "=1;while " + I + "<=#" + N + " do local o=" + N + "[" + I + "];" + I + "=" + I + "+1;local t=" + N + "[" + I + "];" + I + "=" + I + "+1;" +
+          "if t==0 then " + P + "[#" + P + "+1]={o} elseif t==1 then " + P + "[#" + P + "+1]={o," + N + "[" + I + "]};" + I + "=" + I + "+1 else local l=" + N + "[" + I + "];" + I + "=" + I + "+1;local a={}for k=1,l do a[k]=" + N + "[" + I + "];" + I + "=" + I + "+1 end;" + P + "[#" + P + "+1]={o,a} end end;" +
+          vmKeyed + " " +
+          "run(" + P + "," + M + "," + checksum + "," + C + ")"
         );
       }
 
       function setStatus(msg, cls) {
         const s = document.getElementById("status");
-        const icons = {
-          ok: '<svg viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-          err: '<svg viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
-          "": "",
-        };
-        s.innerHTML = (icons[cls || ""] || "") + "<span>" + msg + "</span>";
+        s.textContent = msg;
         s.className = cls || "";
       }
       function run() {
         const src = document.getElementById("input").value;
         const outEl = document.getElementById("output");
-        if (!src.trim()) {
-          setStatus("No input to obfuscate.", "err");
-          return;
-        }
+        if (!src.trim()) { setStatus("No input to obfuscate.", "err"); return; }
         try {
           setStatus("Obfuscating...");
-          const { OP, bytecode } = compile(src);
-          const protectedLua = bundle(OP, bytecode);
+          const { OP, bytecode, constPool } = compile(src);
+          const protectedLua = bundle(OP, bytecode, constPool);
           outEl.value = protectedLua;
-          setStatus(
-            "Protected â€” " +
-              bytecode.length +
-              " instructions, randomized opcodes.",
-            "ok",
-          );
+          setStatus("Protected - " + bytecode.length + " instructions, randomized opcodes.", "ok");
         } catch (e) {
           outEl.value = "";
           setStatus(e.message, "err");
@@ -1321,13 +847,8 @@ end</textarea
       }
       function copyOut() {
         const o = document.getElementById("output");
-        if (!o.value) {
-          setStatus("Nothing to copy.", "err");
-          return;
-        }
-        navigator.clipboard
-          .writeText(o.value)
-          .then(() => setStatus("Copied to clipboard.", "ok"));
+        if (!o.value) { setStatus("Nothing to copy.", "err"); return; }
+        navigator.clipboard.writeText(o.value).then(() => setStatus("Copied to clipboard.", "ok"));
       }
       function clearAll() {
         document.getElementById("input").value = "";
@@ -1335,5 +856,5 @@ end</textarea
         setStatus("Cleared.");
       }
     </script>
-  </body>
+</body>
 </html>
