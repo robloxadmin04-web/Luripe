@@ -533,6 +533,10 @@ end</textarea
           STOREUP:  "local val="+O+"();local u="+N.upvals+" and "+N.upvals+"[a];if u then u.v=val end",
           CLOSURE:  "local addr=a[1];local caps=a[2];local ups={};for i=1,#caps do ups[i-1]="+F+"[caps[i]] end;"+P+"({__cl=true,addr=addr,ups=ups})",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
+          GETGLOBAL: "local nm="+N.decodeString+"(a);"+P+"((_ENV or getfenv and getfenv() or _G)[nm])",
+          SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+P+"(fn(obj,table.unpack(args,1,ac)))",
+          CALLR:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+P+"(fn(table.unpack(args,1,ac)))",
+          RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();fn(table.unpack(args,1,ac))",
         };
 
         const missing = OPS.filter((o) => !(o in body));
@@ -685,6 +689,7 @@ end</textarea
         "RETURN","NEWTABLE","SETTABLE","GETTABLE","CONCAT","BUILTIN","TLEN",
         "MOD","RETURNN","STOREMULTI","VARARG","NOT","NEWCELL","LOADCELL",
         "STORECELL","LOADUP","STOREUP","CLOSURE","CALLC","LOADK",
+        "GETGLOBAL","SELFCALL","CALLR","RCALL",
       ];
       function buildOpcodeMap() {
         const nums = [];
@@ -715,6 +720,7 @@ end</textarea
       };
 
       function compile(source) {
+        const ROBLOX_PASSTHROUGH = true; // globals/services/runtime calls
         const OP = buildOpcodeMap();
         const ast = luaparse.parse(source);
         const bytecode = [];
@@ -766,9 +772,11 @@ end</textarea
             if (str === null || str === undefined) str = node.raw.slice(1, -1);
             emit(OP.PUSHSTR, encodeString(str));
           } else if (node.type === "Identifier") {
-            const slot = scope[node.name];
-            if (slot === undefined) throw new Error("hindi pa naka-declare: " + node.name);
-            emit(OP.LOAD, slot);
+            if (scope.__upvals && scope.__upvals[node.name] !== undefined) { emit(OP.LOADUP, scope.__upvals[node.name]); }
+            else { const slot = scope[node.name];
+            if (slot !== undefined) { if (scope.__cells && scope.__cells.has(slot)) emit(OP.LOADCELL, slot); else emit(OP.LOAD, slot); }
+            else if (ROBLOX_PASSTHROUGH) { emit(OP.GETGLOBAL, encodeString(node.name)); }
+            else throw new Error("hindi pa naka-declare: " + node.name); }
           } else if (node.type === "BinaryExpression") {
             compileExpr(node.left);
             compileExpr(node.right);
@@ -802,7 +810,47 @@ end</textarea
             else if (node.operator === "not") { compileExpr(node.argument); emit(OP.NOT); }
             else if (node.operator === "#") { compileExpr(node.argument); emit(OP.TLEN); }
             else throw new Error("hindi sinusuportahan ang unary operator: " + node.operator);
+          } else if (node.type === "FunctionDeclaration" && !node.identifier) {
+            // Anonymous function / callback -> closure (captures outer locals)
+            compileFunctionExpr(node);
           } else throw new Error("hindi sinusuportahan ang expression: " + node.type);
+        }
+
+        function compileFunctionExpr(node) {
+          // Capture outer locals used inside as upvalue cells.
+          const used = new Set();
+          (function collect(n){ if(!n||typeof n!=="object")return; if(Array.isArray(n)){n.forEach(collect);return;} if(n.type==="Identifier")used.add(n.name); for(const k in n){if(k==="type")continue;collect(n[k]);} })(node.body);
+          const outer = scope;
+          const captures = [];
+          for (const nm of used) {
+            if (functions[nm]) continue;
+            if (outer[nm] !== undefined && typeof outer[nm] === "number") {
+              if (!outer.__cells) outer.__cells = new Set();
+              outer.__cells.add(outer[nm]);
+              captures.push(outer[nm]);
+            }
+          }
+          const closureInstr = emit(OP.CLOSURE, [0, captures.slice()]);
+          const jmpOver = emit(OP.JMP, 0);
+          const bodyAddr = here();
+          bytecode[closureInstr].arg = [bodyAddr, captures.slice()];
+          const savedScope = scope, savedNextSlot = nextSlot, savedVararg = varargSlot;
+          scope = {}; nextSlot = 0; varargSlot = 0;
+          scope.__upvals = {};
+          captures.forEach((slot, i) => { });
+          // map captured names to upvalue indices in the same order
+          let ui = 0;
+          for (const nm of used) {
+            if (functions[nm]) continue;
+            if (outer[nm] !== undefined && typeof outer[nm] === "number") { scope.__upvals[nm] = ui++; }
+          }
+          for (const p of node.parameters) {
+            if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
+          }
+          compileBlock(node.body);
+          emitNumber(0); emit(OP.RETURN);
+          scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
+          patch(jmpOver, here());
         }
 
         function compileCall(node) {
@@ -837,9 +885,26 @@ end</textarea
           }
           const fnName = node.base && node.base.name;
           const fn = functions[fnName];
-          if (!fn) throw new Error("hindi kilalang function: " + (fnName || bname));
-          for (const a of node.arguments) compileExpr(a);
-          emit(OP.CALL, [fn.addr, node.arguments.length]);
+          if (fn) {
+            for (const a of node.arguments) compileExpr(a);
+            emit(OP.CALL, [fn.addr, node.arguments.length]);
+            return;
+          }
+          if (ROBLOX_PASSTHROUGH) {
+            // Method call obj:method(...) with unknown method -> runtime SELFCALL
+            if (node.base && node.base.type === "MemberExpression" && node.base.indexer === ":") {
+              compileExpr(node.base.base);
+              for (const a of node.arguments) compileExpr(a);
+              emit(OP.SELFCALL, [encodeString(node.base.identifier.name), node.arguments.length]);
+              return;
+            }
+            // Any other callee (global, member, index result) -> runtime CALLR
+            compileExpr(node.base);
+            for (const a of node.arguments) compileExpr(a);
+            emit(OP.CALLR, node.arguments.length);
+            return;
+          }
+          throw new Error("hindi kilalang function: " + (fnName || bname));
         }
 
         function compileAssignTarget(target, valueEmitter) {
