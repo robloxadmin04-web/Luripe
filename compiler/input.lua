@@ -1,17 +1,19 @@
--- input.lua  —  sample na programa na may LOGIC (if/while)
--- Subukan: node luripe.js input.lua
+-- input.lua  —  test na may GENERIC FOR (ipairs) + lahat ng features
 
-local i = 1
-while i <= 5 do
-  print(i)
-  i = i + 1
+local function double(n)
+  return n * 2
 end
 
-local score = 85
-if score >= 90 then
-  print(1)
-elseif score >= 75 then
-  print(2)
-else
-  print(3)
+local nums = {}
+table.insert(nums, 5)
+table.insert(nums, 10)
+table.insert(nums, 15)
+
+local total = 0
+for i, v in ipairs(nums) do
+  local d = double(v)
+  print("Item " .. i .. ": " .. v .. " -> " .. d)
+  total = total + d
 end
+
+print("Total (doubled): " .. total)

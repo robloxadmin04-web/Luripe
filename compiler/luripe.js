@@ -53,6 +53,8 @@ const OPS = [
   "GETTABLE",
   "CONCAT",
   "BUILTIN",
+  "TLEN",
+  "MOD",
 ];
 function buildOpcodeMap() {
   const nums = [];
@@ -295,6 +297,52 @@ function compile(source) {
       emit(OP.STORE, varSlot);
       emit(OP.JMP, loopTop);
       patch(jz, here());
+    } else if (node.type === "ForGenericStatement") {
+      // for k, v in ipairs(t) do ... end   /   for k, v in pairs(t) do ... end
+      // Ginagawa nating index-based loop: idx=0; idx=idx+1; while idx<=#t;
+      //   k=idx, v=t[idx].  (ipairs at pairs = pareho ang trato dito para sa array tables)
+      const iter = node.iterators[0]; // CallExpression: ipairs(t) / pairs(t)
+      if (
+        iter.type !== "CallExpression" ||
+        !iter.base ||
+        (iter.base.name !== "ipairs" && iter.base.name !== "pairs")
+      ) {
+        throw new Error("suportado lang ang ipairs()/pairs() sa generic for");
+      }
+      // i-store ang table sa isang hidden slot
+      const tblSlot = slotFor("__for_t_" + here());
+      compileExpr(iter.arguments[0]);
+      emit(OP.STORE, tblSlot);
+      // idx hidden slot
+      const idxSlot = slotFor("__for_i_" + here());
+      emit(OP.PUSH, 0);
+      emit(OP.STORE, idxSlot);
+      // key/value variables
+      const keyVar = node.variables[0] ? slotFor(node.variables[0].name) : null;
+      const valVar = node.variables[1] ? slotFor(node.variables[1].name) : null;
+      const loopTop = here();
+      emit(OP.LOAD, idxSlot);
+      emit(OP.PUSH, 1);
+      emit(OP.ADD);
+      emit(OP.STORE, idxSlot); // idx++
+      emit(OP.LOAD, idxSlot);
+      emit(OP.LOAD, tblSlot);
+      emit(OP.TLEN);
+      emit(OP.LE); // idx <= #t
+      const jz = emit(OP.JZ, 0);
+      if (keyVar !== null) {
+        emit(OP.LOAD, idxSlot);
+        emit(OP.STORE, keyVar);
+      } // k = idx
+      if (valVar !== null) {
+        emit(OP.LOAD, tblSlot);
+        emit(OP.LOAD, idxSlot);
+        emit(OP.GETTABLE);
+        emit(OP.STORE, valVar);
+      } // v = t[idx]
+      compileBlock(node.body);
+      emit(OP.JMP, loopTop);
+      patch(jz, here());
     } else throw new Error("hindi sinusuportahan ang statement: " + node.type);
   }
 
@@ -302,8 +350,17 @@ function compile(source) {
   const funcNodes = [],
     mainNodes = [];
   for (const stmt of ast.body) {
-    if (stmt.type === "FunctionDeclaration") funcNodes.push(stmt);
-    else mainNodes.push(stmt);
+    // FunctionDeclaration (kasama ang `local function foo()` — may isLocal=true).
+    // Tanggapin lang kung may identifier na pangalan (hindi anonymous).
+    if (
+      stmt.type === "FunctionDeclaration" &&
+      stmt.identifier &&
+      stmt.identifier.name
+    ) {
+      funcNodes.push(stmt);
+    } else {
+      mainNodes.push(stmt);
+    }
   }
   const skipToMain = emit(OP.JMP, 0);
   for (const fn of funcNodes) {
@@ -415,6 +472,8 @@ local function run(program, OP, expectedChecksum)
     elseif op == OP.NEWTABLE then push({})
     elseif op == OP.SETTABLE then local v = pop(); local k = pop(); local t = pop(); t[k] = v
     elseif op == OP.GETTABLE then local k = pop(); local t = pop(); push(t[k])
+    elseif op == OP.TLEN then local t = pop(); push(#t)
+    elseif op == OP.MOD then local b = pop(); local a = pop(); push(a % b)
     elseif op == OP.BUILTIN then
       local id, argc = arg[1], arg[2]
       local args = {}
