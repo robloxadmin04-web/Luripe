@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: luripe
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: ./site
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
