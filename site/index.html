@@ -757,6 +757,26 @@ end</textarea
             for (const a of node.arguments) compileExpr(a);
             emit(OP.BUILTIN, [b.id, node.arguments.length]); return;
           }
+          // Method call: d:speak(x) -> speak(d, x), self=d
+          if (node.base && node.base.type === "MemberExpression" && node.base.indexer === ":") {
+            const methodKey = node.base.identifier.name;
+            let fn = null;
+            for (const qn in functions) { if (qn.endsWith("." + methodKey) || qn === methodKey) { fn = functions[qn]; break; } }
+            if (!fn) throw new Error("hindi kilalang method: " + methodKey);
+            compileExpr(node.base.base);
+            for (const a of node.arguments) compileExpr(a);
+            emit(OP.CALL, [fn.addr, node.arguments.length + 1]);
+            return;
+          }
+          // Qualified call: Dog.new(x)
+          if (node.base && node.base.type === "MemberExpression" && node.base.indexer === ".") {
+            const qn = node.base.base.name + "." + node.base.identifier.name;
+            const fn = functions[qn];
+            if (!fn) throw new Error("hindi kilalang function: " + qn);
+            for (const a of node.arguments) compileExpr(a);
+            emit(OP.CALL, [fn.addr, node.arguments.length]);
+            return;
+          }
           const fnName = node.base && node.base.name;
           const fn = functions[fnName];
           if (!fn) throw new Error("hindi kilalang function: " + (fnName || bname));
@@ -780,14 +800,26 @@ end</textarea
 
         function compileStatement(node) {
           if (node.type === "LocalStatement") {
-            for (let i = 0; i < node.variables.length; i++) {
-              const name = node.variables[i].name;
-              if (node.init[i]) compileExpr(node.init[i]); else emitNumber(0);
-              emit(OP.STORE, slotFor(name));
+            if (node.variables.length > 1 && node.init.length === 1 && node.init[0] && node.init[0].type === "CallExpression") {
+              compileCall(node.init[0]);
+              const slots = node.variables.map((v) => slotFor(v.name));
+              emit(OP.STOREMULTI, slots);
+            } else {
+              for (let i = 0; i < node.variables.length; i++) {
+                const name = node.variables[i].name;
+                if (node.init[i]) compileExpr(node.init[i]); else emitNumber(0);
+                emit(OP.STORE, slotFor(name));
+              }
             }
           } else if (node.type === "AssignmentStatement") {
-            for (let i = 0; i < node.variables.length; i++)
-              compileAssignTarget(node.variables[i], () => compileExpr(node.init[i]));
+            if (node.variables.length > 1 && node.init.length === 1 && node.init[0] && node.init[0].type === "CallExpression" && node.variables.every((v) => v.type === "Identifier")) {
+              compileCall(node.init[0]);
+              const slots = node.variables.map((v) => slotFor(v.name));
+              emit(OP.STOREMULTI, slots);
+            } else {
+              for (let i = 0; i < node.variables.length; i++)
+                compileAssignTarget(node.variables[i], () => compileExpr(node.init[i]));
+            }
           } else if (node.type === "CallStatement") {
             compileCall(node.expression);
           } else if (node.type === "IfStatement") {
@@ -850,10 +882,14 @@ end</textarea
           } else if (node.type === "FunctionDeclaration" && node.identifier) {
             const jmpOver = emit(OP.JMP, 0);
             const addr = here();
-            const qname = node.identifier.name;
+            let qname;
+            const isMethod = node.identifier.type === "MemberExpression" && node.identifier.indexer === ":";
+            if (node.identifier.type === "Identifier") qname = node.identifier.name;
+            else qname = node.identifier.base.name + "." + node.identifier.identifier.name;
             functions[qname] = { addr };
             const savedScope = scope, savedNextSlot = nextSlot, savedVararg = varargSlot;
             scope = {}; nextSlot = 0; varargSlot = 0;
+            if (isMethod) slotFor("self");
             for (const p of node.parameters) {
               if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
             }
