@@ -382,6 +382,7 @@ end</textarea
             </svg>
             Output " Protected script
           </span>
+          <button class="icon-btn" onclick="copyLoadstring()" title="Copy as loadstring runner">LS</button>
           <button class="icon-btn" onclick="copyOut()">
             <svg viewBox="0 0 24 24" fill="none">
               <rect
@@ -450,6 +451,7 @@ end</textarea
         <option value="auto">Mode: Auto</option>
         <option value="vm">Mode: VM (strong)</option>
         <option value="wrapper">Mode: Wrapper (universal)</option>
+        <option value="raw">Mode: Raw (no protection, always runs)</option>
       </select>
       <span id="status">Ready.</span>
     </div>
@@ -1300,14 +1302,18 @@ end</textarea
           C + "[#" + C + "+1]=string.char(_c&0xFF);_p=_e end;" +
           "local " + D + "=table.concat(" + C + ");" +
           J(2) +
-          "local " + FN + "=(loadstring or load)(" + D + ");" +
-          "if " + FN + " then return " + FN + "() end";
+          "local _ls=loadstring or load;" +
+          "if not _ls then warn('Luripe: loadstring not available in this environment') return end;" +
+          "local " + FN + ",_err=_ls(" + D + ");" +
+          "if not " + FN + " then warn('Luripe: compile error '..tostring(_err)) return end;" +
+          "local _ok,_e2=pcall(" + FN + ");" +
+          "if not _ok then warn('Luripe: runtime error '..tostring(_e2)) end";
         return loader;
       }
 
       function pickMode() {
         const m = document.getElementById("mode").value;
-        if (m === "vm" || m === "wrapper") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw") return m;
         // auto: use AI verdict if present
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -1319,6 +1325,11 @@ end</textarea
         const outEl = document.getElementById("output");
         if (!src.trim()) { setStatus("No input to obfuscate.", "err"); return; }
         const mode = pickMode();
+        if (mode === "raw") {
+          outEl.value = rawBundle(src);
+          setStatus("Raw mode - no protection, runs as-is via executor.", "ok");
+          return;
+        }
         if (mode === "wrapper") {
           try {
             setStatus("Obfuscating (wrapper mode)...");
@@ -1354,6 +1365,35 @@ end</textarea
         document.getElementById("input").value = "";
         document.getElementById("output").value = "";
         setStatus("Cleared.");
+      }
+
+      // Raw mode: no protection, just ensures the script runs via the executor.
+      // Useful for testing or when the user just wants a runnable copy.
+      function rawBundle(src) {
+        return src;
+      }
+
+      // Copy the output as a directly-runnable loadstring one-liner for Delta.
+      // If output is already a loader, copies as-is. Otherwise wraps raw Lua.
+      function copyLoadstring() {
+        const o = document.getElementById("output");
+        let val = o.value;
+        if (!val.trim()) {
+          // nothing generated yet -> wrap the INPUT so users can run unobfuscated
+          val = document.getElementById("input").value;
+          if (!val.trim()) { setStatus("Nothing to copy.", "err"); return; }
+        }
+        // Escape for a [[ ]] long string; fall back to quoted if needed.
+        let out;
+        if (!val.includes("]]")) {
+          out = "loadstring([[" + val + "]])()";
+        } else {
+          const esc = val.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+          out = 'loadstring("' + esc + '")()';
+        }
+        navigator.clipboard.writeText(out).then(
+          () => setStatus("Copied loadstring runner - paste into Delta and run.", "ok")
+        );
       }
 
       // ================= AI ANALYZER (Google Gemini) =================
