@@ -1395,7 +1395,7 @@ end</textarea>
           "local " + AC + "=#" + B + "%100003;for _i=1,#" + B + " do " + AC + "=(" + AC + "+" + B + "[_i])%100003 end;" +
           (DBG
             ? "if " + AC + "~=" + CK + " then warn('[Luripe] checksum mismatch - blob corrupted in paste') return end;"
-            : "if " + AC + "~=" + CK + " then return end;") + +
+            : "if " + AC + "~=" + CK + " then return end;") +
           J(2) +
           // reverse layer 2 (un-XOR round key), then layer 1 (rolling), rebuild bytes
           "local " + C + "={};local _p=" + SD + ";" +
