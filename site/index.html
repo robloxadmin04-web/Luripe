@@ -1407,14 +1407,17 @@ end</textarea>
           "local " + D + "=table.concat(" + C + ");" +
           J(2) +
           "local _ls=loadstring or load;" +
-          (DBG ? "print('[Luripe] decoded '..tostring(#" + D + ")..' chars, loadstring type: '..type(_ls));" : "") +
+          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, loadstring type: '..type(_ls));" : "") +
           "if type(_ls)~='function' then warn('Luripe: loadstring/load not available - Wrapper mode needs an executor that allows loadstring') return end;" +
           "local " + FN + ",_err=_ls(" + D + ");" +
-          "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)..' (loadstring may be disabled in this environment)') return end;" +
-          (DBG ? "print('[Luripe] compiled OK, executing...');" : "") +
+          "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
+          // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
+          "local _env=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
+          "if setfenv and _env then pcall(setfenv," + FN + ",_env) end;" +
+          (DBG ? "warn('[Luripe] compiled OK, executing...');" : "") +
           "local _ok,_e2=pcall(" + FN + ");" +
           (DBG
-            ? "if _ok then print('[Luripe] finished OK') else warn('[Luripe] RUNTIME ERROR: '..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
+            ? "if _ok then warn('[Luripe] finished OK') else warn('[Luripe] RUNTIME ERROR: '..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
             : "if not _ok then warn('Luripe: runtime error - '..tostring(_e2)) end") +
           ";";
         return loader;
