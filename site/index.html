@@ -767,6 +767,10 @@ end</textarea
         function compileExpr(node) {
           if (node.type === "NumericLiteral") {
             emitNumber(node.value);
+          } else if (node.type === "BooleanLiteral") {
+            emitNumber(node.value ? 1 : 0);
+          } else if (node.type === "NilLiteral") {
+            emitNumber(0);
           } else if (node.type === "StringLiteral") {
             let str = node.value;
             if (str === null || str === undefined) str = node.raw.slice(1, -1);
