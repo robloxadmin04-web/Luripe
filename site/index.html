@@ -474,7 +474,7 @@
   
     <!-- Luripe VM + Luau type-strip (task.spawn fixed) lrp-luau-mshwsgwh @ 2026-08-06T19:28:36.497Z -->
   
-    <!-- Luripe VM + full Luau preprocessor (types + compound + continue) lrp-preproc-mshx7tdr @ 2026-08-06T19:40:32.511Z -->
+    <!-- Luripe VM + deep-fixed Luau preprocessor (balanced continue) lrp-deepfix-mshxkpkw @ 2026-08-06T19:50:34.112Z -->
   </head>
   <body>
     <header>
@@ -1071,84 +1071,62 @@ end</textarea>
       function compile(source) {
         const ROBLOX_PASSTHROUGH = true; // globals/services/runtime calls
         const OP = buildOpcodeMap();
-        // ===== Luau -> Lua 5.1 preprocessor =====
-        // luaparse@0.3.1 parses Lua 5.1 only. Luau scripts use syntax it cannot
-        // read: type annotations, compound assignment (+= etc.), and continue.
-        // We transform all three to equivalent Lua 5.1 BEFORE parsing, so Luau
-        // scripts virtualize instead of falling back to wrapper. Proven on real
-        // Luau scripts. A tokenizer skips strings/comments so we never touch
-        // string contents or method colons (obj:m(), game:GetService).
-        function __lrpTokenize(str){
-          const toks=[]; let i=0,n=str.length; const ww=c=>/[A-Za-z0-9_]/.test(c);
-          while(i<n){ const c=str[i];
-            if(c==='-'&&str[i+1]==='-'){
-              if(str[i+2]==='['){const m=/^\[(=*)\[/.exec(str.slice(i+2)); if(m){const cl=']'+m[1]+']';const q=str.indexOf(cl,i+2+m[0].length);i=q<0?n:q+cl.length;continue;}}
-              const q=str.indexOf('\n',i); i=q<0?n:q; continue;
-            }
-            if(c==='['){const m=/^\[(=*)\[/.exec(str.slice(i)); if(m){const cl=']'+m[1]+']';const q=str.indexOf(cl,i+m[0].length);i=q<0?n:q+cl.length;continue;}}
-            if(c==='"'||c==="'"){i++;while(i<n&&str[i]!==c){if(str[i]==='\\')i++;i++;}i++;continue;}
-            if(ww(c)&&!/[0-9]/.test(c)){let j=i;while(j<n&&ww(str[j]))j++;toks.push({w:str.slice(i,j),i:i,j:j});i=j;continue;}
+        // ===== Luau -> Lua 5.1 preprocessor (deep-fixed continue) =====
+        // luaparse@0.3.1 is Lua 5.1 only. Transform Luau type annotations,
+        // compound assignment (+=), and continue BEFORE parsing. The continue
+        // rewriter wraps ONE innermost loop per pass then RE-SCANS the fresh
+        // string, so nested-loop wraps never desync (fixes the double-'until'
+        // bug). A tokenizer skips strings/comments so method colons and string
+        // contents are never touched. Block-balance validated on real scripts.
+        function __lt(s){ const t=[]; let i=0,n=s.length; const ww=c=>/[A-Za-z0-9_]/.test(c);
+          while(i<n){ const c=s[i];
+            if(c==='-'&&s[i+1]==='-'){ if(s[i+2]==='['){const m=/^\[(=*)\[/.exec(s.slice(i+2)); if(m){const cl=']'+m[1]+']';const q=s.indexOf(cl,i+2+m[0].length);i=q<0?n:q+cl.length;continue;}} const q=s.indexOf('\n',i); i=q<0?n:q; continue; }
+            if(c==='['){const m=/^\[(=*)\[/.exec(s.slice(i)); if(m){const cl=']'+m[1]+']';const q=s.indexOf(cl,i+m[0].length);i=q<0?n:q+cl.length;continue;}}
+            if(c==='"'||c==="'"){i++;while(i<n&&s[i]!==c){if(s[i]==='\\')i++;i++;}i++;continue;}
+            if(ww(c)&&!/[0-9]/.test(c)){let j=i;while(j<n&&ww(s[j]))j++;t.push({w:s.slice(i,j),i:i,j:j});i=j;continue;}
             i++;
-          }
-          return toks;
+          } return t;
         }
-        function __lrpStripTypes(str){
-          let o=str;
-          o=o.replace(/\)\s*:\s*[A-Za-z_][A-Za-z0-9_.]*(\s*<[^>\r\n]*>)?(\s*\??)(\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*/g,")");
-          o=o.replace(/([A-Za-z0-9_\]])\s*:\s*(?!:)([A-Za-z_][A-Za-z0-9_.]*(?:<[^>\r\n]*>)?\??(?:\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*)(?=\s*[,)=\r\n])/g,"$1");
-          return o;
-        }
-        function __lrpStripCompound(str){
-          return str.replace(/(^|[\r\n;]|\bthen\b|\bdo\b|\belse\b)(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]\r\n]+\])*)\s*(\.\.|[+\-*/%^])=\s*/g,
-            function(m,pre,ws,lv,op){ return pre+ws+lv+" = "+lv+" "+op+" "; });
-        }
-        function __lrpReplaceOwnContinues(body){
-          const toks=__lrpTokenize(body); const stack=[]; const owned=[];
-          for(let t=0;t<toks.length;t++){ const w=toks[t].w;
-            if(w==="continue"){ if(stack.every(function(b){return b.type!=="for"&&b.type!=="while";})) owned.push(toks[t]); }
-            if(w==="for"||w==="while")stack.push({type:w,doPending:true});
-            else if(w==="if"||w==="function")stack.push({type:w});
-            else if(w==="do"){const top=stack[stack.length-1]; if(top&&(top.type==="for"||top.type==="while")&&top.doPending)top.doPending=false; else stack.push({type:"do"});}
-            else if(w==="repeat")stack.push({type:"repeat"});
-            else if(w==="until"){for(let k=stack.length-1;k>=0;k--){if(stack[k].type==="repeat"){stack.splice(k,1);break;}}}
-            else if(w==="end")stack.pop();
+        function __linner(s){ const t=__lt(s); const st=[]; const loops=[]; const cs=[];
+          for(let k=0;k<t.length;k++){ const w=t[k].w;
+            if(w==="continue")cs.push({i:t[k].i,j:t[k].j});
+            if(w==="for"||w==="while")st.push({type:w,doTok:-1});
+            else if(w==="if"||w==="function")st.push({type:w});
+            else if(w==="do"){const tp=st[st.length-1]; if(tp&&(tp.type==="for"||tp.type==="while")&&tp.doTok===-1)tp.doTok=k; else st.push({type:"do"});}
+            else if(w==="repeat")st.push({type:"repeat"});
+            else if(w==="until"){for(let z=st.length-1;z>=0;z--){if(st[z].type==="repeat"){st.splice(z,1);break;}}}
+            else if(w==="end"){const b=st.pop(); if(b&&(b.type==="for"||b.type==="while")&&b.doTok>=0)loops.push({bodyStart:t[b.doTok].j,bodyEnd:t[k].i});}
           }
-          owned.sort(function(a,b){return b.i-a.i;});
-          let o=body; for(const ct of owned){ o=o.slice(0,ct.i)+"break"+o.slice(ct.j); } return o;
+          loops.forEach(function(l){l.span=l.bodyEnd-l.bodyStart;});
+          let best=null;
+          for(const ct of cs){ let owner=null; for(const l of loops){ if(ct.i>l.bodyStart&&ct.i<l.bodyEnd){ if(!owner||l.span<owner.span)owner=l; } } if(owner){ if(!best||owner.span<best.span)best=owner; } }
+          return best;
         }
-        function __lrpRewriteContinueOnce(str){
-          const toks=__lrpTokenize(str); const stack=[]; const loops=[]; const conts=[];
-          for(let t=0;t<toks.length;t++){ const w=toks[t].w;
-            if(w==="continue")conts.push(toks[t]);
-            if(w==="for"||w==="while")stack.push({type:w,doTok:-1,endTok:-1});
-            else if(w==="if"||w==="function")stack.push({type:w});
-            else if(w==="do"){const top=stack[stack.length-1]; if(top&&(top.type==="for"||top.type==="while")&&top.doTok===-1)top.doTok=t; else stack.push({type:"do"});}
-            else if(w==="repeat")stack.push({type:"repeat"});
-            else if(w==="until"){for(let k=stack.length-1;k>=0;k--){if(stack[k].type==="repeat"){stack.splice(k,1);break;}}}
-            else if(w==="end"){const b=stack.pop(); if(b&&(b.type==="for"||b.type==="while")){b.endTok=t;loops.push(b);}}
+        function __lbreak(body){ const t=__lt(body); const st=[]; const own=[];
+          for(let k=0;k<t.length;k++){ const w=t[k].w;
+            if(w==="continue"){ if(st.every(function(b){return b.type!=="for"&&b.type!=="while";}))own.push(t[k]); }
+            if(w==="for"||w==="while")st.push({type:w,dop:true});
+            else if(w==="if"||w==="function")st.push({type:w});
+            else if(w==="do"){const tp=st[st.length-1]; if(tp&&(tp.type==="for"||tp.type==="while")&&tp.dop)tp.dop=false; else st.push({type:"do"});}
+            else if(w==="repeat")st.push({type:"repeat"});
+            else if(w==="until"){for(let z=st.length-1;z>=0;z--){if(st[z].type==="repeat"){st.splice(z,1);break;}}}
+            else if(w==="end")st.pop();
           }
-          loops.forEach(function(l){l.span=toks[l.endTok].i-toks[l.doTok].j;l.hasC=false;});
-          const contains=function(l,ct){return ct.i>toks[l.doTok].j&&ct.i<toks[l.endTok].i;};
-          for(const ct of conts){let best=null;for(const l of loops){if(l.doTok>=0&&l.endTok>=0&&contains(l,ct)){if(!best||l.span<best.span)best=l;}}if(best)best.hasC=true;}
-          const need=loops.filter(function(l){return l.hasC;});
-          need.sort(function(a,b){return toks[b.doTok].j-toks[a.doTok].j;});
-          let out=str;
-          for(const l of need){ const bs=toks[l.doTok].j, be=toks[l.endTok].i;
-            let body=out.slice(bs,be); body=__lrpReplaceOwnContinues(body);
-            out=out.slice(0,bs)+" repeat "+body+" until true "+out.slice(be);
-          }
+          own.sort(function(a,b){return b.i-a.i;});
+          let o=body; for(const ct of own){ o=o.slice(0,ct.i)+"break"+o.slice(ct.j); } return o;
+        }
+        function __lcont(s){ let out=s,g=0;
+          while(g++ < 2000){ const l=__linner(out); if(!l)break; let body=out.slice(l.bodyStart,l.bodyEnd); body=__lbreak(body); out=out.slice(0,l.bodyStart)+" repeat"+body+" until true "+out.slice(l.bodyEnd); }
           return out;
         }
-        function __lrpPreprocess(str){
-          let o=__lrpStripTypes(str);
-          o=__lrpStripCompound(o);
-          let pass=0;
-          while((o.match(/(^|\s)continue(\s|$)/gm)||[]).length>0 && pass<8){
-            const prev=o; o=__lrpRewriteContinueOnce(o); pass++; if(o===prev) break;
-          }
+        function __lprep(s){ let o=s;
+          o=o.replace(/\)\s*:\s*[A-Za-z_][A-Za-z0-9_.]*(\s*<[^>\r\n]*>)?(\s*\??)(\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*/g,")");
+          o=o.replace(/([A-Za-z0-9_\]])\s*:\s*(?!:)([A-Za-z_][A-Za-z0-9_.]*(?:<[^>\r\n]*>)?\??(?:\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*)(?=\s*[,)=\r\n])/g,"$1");
+          o=o.replace(/(^|[\r\n;]|\bthen\b|\bdo\b|\belse\b)(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]\r\n]+\])*)\s*(\.\.|[+\-*/%^])=\s*/g,function(m,p,ws,lv,op){return p+ws+lv+" = "+lv+" "+op+" ";});
+          o=__lcont(o);
           return o;
         }
-        source = __lrpPreprocess(source);
+        source = __lprep(source);
         const ast = luaparse.parse(source, { ranges: true });
         const SRC = source; // kept for per-function spill (hybrid fallback)
         // Extract the exact original text of an AST node via its char range.
