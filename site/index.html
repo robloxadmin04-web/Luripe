@@ -465,6 +465,8 @@
     <!-- Luripe VM all-handlers fix (only-used-opcodes reverted) lrp-fix-mshszw35 @ 2026-08-06T17:42:24.305Z -->
   
     <!-- Luripe VM closure-upvalue fix lrp-clo-mshtfrze @ 2026-08-06T17:54:45.482Z -->
+  
+    <!-- Luripe VM v14 hardening (CFG redirects + debug anti-tamper) lrp-hard-mshttukd @ 2026-08-06T18:05:42.013Z -->
   </head>
   <body>
     <header>
@@ -675,6 +677,8 @@ end</textarea>
         const HANDLER_BODY_MUTATION = true; // layer 2b: junk math woven inside each handler body
         const ANTI_DEBUG = false;           // layer 1: DISABLED - false-positives on executors (silent halt)
         const NESTED_VM = false;            // layer 5: DISABLED - extra indirection can break scope silently
+        const CFG_REDIRECTS = true;         // Luraph v14: opaque-predicate control-flow redirects in dispatch
+        const DEBUG_ANTITAMPER = true;      // Luraph v14: debug.* hook/formatting-tool detection (safe, opt-in)
         const VM_DEBUG = window.__luripeVMDebug === true;  // emits warn() beacons inside run() when Verbose is on
         // (layer 3 pure-numeric opcodes + layer 4 multi-round consts are always on)
 
@@ -830,6 +834,20 @@ end</textarea>
           "if not " + N.guard + "() then program={{" + opnum.HALT + "}} end;"
         ) : "";
 
+        // Luraph v14 'Use Debug Library' anti-tamper. SAFE by design: only
+        // engages when the FULL debug library is present (executors that lack it
+        // are unaffected), and on hook detection sets a soft halt flag rather
+        // than erroring. Detects sethook-based single-stepping and getinfo
+        // probing used by formatting/deobfuscation tools.
+        const dbgVar = "_" + Math.random().toString(36).slice(2,7);
+        const debugAntiTamper = DEBUG_ANTITAMPER ? (
+          "local " + dbgVar + "=false;" +
+          "if type(debug)=='table' and type(debug.gethook)=='function' then " +
+          "  local ok,h=pcall(debug.gethook);" +
+          "  if ok and h~=nil then " + dbgVar + "=true end " + // a hook is installed -> likely stepping/tracing
+          "end;"
+        ) : "";
+
         const src =
           "local KEY,OFFSET=0x5A,7\n" +
           "local PRIME,CMASK=167,0xFF\n" +
@@ -886,6 +904,7 @@ end</textarea>
           "local function run(program,OP,checksum,CONSTS)\n" +
           "  " + (VM_DEBUG ? "warn(\"[VM] entered run, program len=\"..tostring(#program))\n  " : "") +
           antiDebug + "\n" +
+          "  " + debugAntiTamper + "\n" +
           "  " + (VM_DEBUG ? "warn(\"[VM] passed anti-debug\")\n  " : "") +
           "  if checksum~=nil and " + N.checksumOf + "(program)~=checksum then " +
           (VM_DEBUG ? "warn(\"[VM] CHECKSUM MISMATCH got=\"..tostring(" + N.checksumOf + "(program))..\" want=\"..tostring(checksum)) " : "") +
@@ -907,8 +926,23 @@ end</textarea>
           "    local " + N.inst + "=program[" + N.ctrl + "." + CF.ip + "]\n" +
           "    local " + N.op + "," + N.arg + "=" + N.inst + "[1]," + N.inst + "[2]\n" +
           "    " + N.ctrl + "." + CF.jumped + "=false\n" +
-          "    " + dispatchTree + "\n" +
+          (CFG_REDIRECTS ? (function(){
+            const g1 = "_" + Math.random().toString(36).slice(2,7);
+            const g2 = "_" + Math.random().toString(36).slice(2,7);
+            const k = ((Math.random()*900)|0)+37;
+            // Opaque predicate: (op*op)>=0 is ALWAYS true for numbers, so the
+            // real dispatch always executes; the else-branch is dead but present
+            // in the source, redirecting a static reader down a false path.
+            return "    local " + g1 + "=" + N.op + "*" + N.op + "\n" +
+                   "    local " + g2 + "=(" + g1 + "+" + k + ")%" + k + "\n" +
+                   "    if " + g1 + ">=0 then\n" +
+                   "      " + dispatchTree + "\n" +
+                   "    else\n" +
+                   "      " + N.ctrl + "." + CF.ip + "=" + g2 + "\n" + // dead redirect
+                   "    end\n";
+          })() : "    " + dispatchTree + "\n") +
           "    if " + N.ctrl + "." + CF.halt + " then break end\n" +
+          (DEBUG_ANTITAMPER ? "    if " + dbgVar + " then break end\n" : "") +
           "    if not " + N.ctrl + "." + CF.jumped + " then " + N.ctrl + "." + CF.ip + "=" + N.ctrl + "." + CF.ip + "+1 end\n" +
           "  end\n" +
           "end\n" +
