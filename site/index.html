@@ -1391,13 +1391,31 @@ end</textarea>
           throw new Error("hindi kilalang function: " + (fnName || bname));
         }
 
-        function compileAssignTarget(target, valueEmitter) {
+        function compileAssignTarget(target, valueEmitter, valueNode) {
+          // A function assigned to a TABLE FIELD (V.__add = function... , t[k] =
+          // function...) may become a metamethod or a callback that escapes into
+          // native Lua/Roblox APIs, so it must be a REAL Lua closure, not a VM
+          // closure. Spill it, exactly like table-constructor function fields.
+          const spillEmit = () => {
+            if (valueNode &&
+                (valueNode.type === "FunctionDeclaration" || valueNode.type === "FunctionExpression") &&
+                !valueNode.identifier) {
+              const src = nodeSource(valueNode);
+              if (src) {
+                const gsym = '__lrp_spill_' + (__spillId++);
+                spilledFns.push({ sym: gsym, src: 'return ' + src });
+                emit(OP.GETGLOBAL, encodeString(gsym));
+                return;
+              }
+            }
+            valueEmitter();
+          };
           if (target.type === "Identifier") {
             const slot = slotFor(target.name); valueEmitter(); emit(OP.STORE, slot);
           } else if (target.type === "IndexExpression") {
-            compileExpr(target.base); compileExpr(target.index); valueEmitter(); emit(OP.SETTABLE);
+            compileExpr(target.base); compileExpr(target.index); spillEmit(); emit(OP.SETTABLE);
           } else if (target.type === "MemberExpression") {
-            compileExpr(target.base); emit(OP.PUSHSTR, encodeString(target.identifier.name)); valueEmitter(); emit(OP.SETTABLE);
+            compileExpr(target.base); emit(OP.PUSHSTR, encodeString(target.identifier.name)); spillEmit(); emit(OP.SETTABLE);
           } else throw new Error("hindi sinusuportahan ang assignment target: " + target.type);
         }
 
