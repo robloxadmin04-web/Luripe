@@ -461,6 +461,8 @@
     <!-- Luripe VM Stage1-4 + only-used-opcodes lrp-adv-mshs6wab @ 2026-08-06T17:19:51.539Z -->
   
     <!-- Luripe VM Stage1-4 + escaping-fn fix lrp-esc-mshshcqo @ 2026-08-06T17:27:59.424Z -->
+  
+    <!-- Luripe VM all-handlers fix (only-used-opcodes reverted) lrp-fix-mshszw35 @ 2026-08-06T17:42:24.305Z -->
   </head>
   <body>
     <header>
@@ -658,9 +660,14 @@ end</textarea>
       // Build the VM generator. Returns Lua source as a string given:
       //   names: shared runtime names, H handler table name, ctrl record fields.
       function generateVM(OP, usedNames) {
-        // only-used-opcodes: restrict handler generation to opcodes the script
-        // actually emits (plus HALT, always needed). null => emit all.
-        const EFF = usedNames ? OPS.filter((o) => usedNames.has(o) || o === "HALT") : OPS.slice();
+        // NOTE: the "only-used-opcodes" optimization was REMOVED. It caused a
+        // fatal bug: opcode usage detection missed opcodes emitted via spill/
+        // prelude/metamethod paths, so the generated VM was missing handlers.
+        // When the program hit a missing opcode, the binary-search dispatch
+        // routed to the wrong handler and corrupted the stack ("attempt to get
+        // length of a number value"). We now ALWAYS emit every handler â€” a
+        // slightly larger VM that is guaranteed correct. `usedNames` is ignored.
+        const EFF = OPS.slice();
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
         const PER_HANDLER_MUTATION = true;  // layer 2: opaque predicate + rand names per handler
         const HANDLER_BODY_MUTATION = true; // layer 2b: junk math woven inside each handler body
