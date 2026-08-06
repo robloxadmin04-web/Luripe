@@ -449,6 +449,8 @@
       textarea::-webkit-scrollbar-thumb, #output::-webkit-scrollbar-thumb { background: #2c2c2c; border-radius: 5px; }
       textarea::-webkit-scrollbar-track { background: transparent; }
     </style>
+  
+    <!-- Luripe hybrid build lrp-mshqn0so @ 2026-08-06T16:36:24.648Z -->
   </head>
   <body>
     <header>
@@ -1770,6 +1772,10 @@ end</textarea>
 
       function pickMode() {
         const m = document.getElementById("mode").value;
+        // Explicit choice is respected. VM mode now uses the HYBRID compiler:
+        // it virtualizes everything it can and per-function spills only the
+        // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
+        // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
         if (m === "vm" || m === "wrapper" || m === "raw") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
