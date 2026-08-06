@@ -650,6 +650,7 @@ end</textarea>
         const PER_HANDLER_MUTATION = true;  // layer 2: opaque predicate + rand names per handler
         const ANTI_DEBUG = false;           // layer 1: DISABLED - false-positives on executors (silent halt)
         const NESTED_VM = false;            // layer 5: DISABLED - extra indirection can break scope silently
+        const VM_DEBUG = window.__luripeVMDebug === true;  // emits warn() beacons inside run() when Verbose is on
         // (layer 3 pure-numeric opcodes + layer 4 multi-round consts are always on)
 
         const used = new Set(["run","OP","program","CONSTS","checksum"]);
@@ -815,8 +816,13 @@ end</textarea>
           "  return sum\n" +
           "end\n" +
           "local function run(program,OP,checksum,CONSTS)\n" +
-          "  " + antiDebug + "\n" +
-          "  if checksum~=nil and " + N.checksumOf + "(program)~=checksum then error(\"Luripe: tampering detected\") end\n" +
+          "  " + (VM_DEBUG ? "warn(\"[VM] entered run, program len=\"..tostring(#program))\n  " : "") +
+          antiDebug + "\n" +
+          "  " + (VM_DEBUG ? "warn(\"[VM] passed anti-debug\")\n  " : "") +
+          "  if checksum~=nil and " + N.checksumOf + "(program)~=checksum then " +
+          (VM_DEBUG ? "warn(\"[VM] CHECKSUM MISMATCH got=\"..tostring(" + N.checksumOf + "(program))..\" want=\"..tostring(checksum)) " : "") +
+          "error(\"Luripe: tampering detected\") end\n" +
+          "  " + (VM_DEBUG ? "warn(\"[VM] passed checksum\")\n  " : "") +
           "  local " + N.K + "={}\n" +
           "  if CONSTS then for i=1,#CONSTS do " + N.K + "[i-1]=" + N.decodeNumber + "(CONSTS[i]) end end\n" +
           "  local " + N.stack + ",sp={},0\n" +
@@ -1577,6 +1583,7 @@ end</textarea>
         const mode = pickMode();
         const dbgEl = document.getElementById("dbg");
         const DBG = !!(dbgEl && dbgEl.checked);
+        window.__luripeVMDebug = DBG;
         if (mode === "raw") {
           outEl.value = rawBundle(src);
           setStatus("Raw mode - no protection, runs as-is via executor.", "ok");
