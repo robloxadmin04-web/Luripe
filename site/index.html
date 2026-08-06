@@ -469,6 +469,8 @@
     <!-- Luripe VM v14 hardening (CFG redirects + debug anti-tamper) lrp-hard-mshttukd @ 2026-08-06T18:05:42.013Z -->
   
     <!-- Luripe VM CFG-redirect invariant fix lrp-cfgfix-mshu3knv @ 2026-08-06T18:13:15.739Z -->
+  
+    <!-- Luripe VM named-fn upvalue fix + smarter error AI lrp-named-mshuqqdm @ 2026-08-06T18:31:16.234Z -->
   </head>
   <body>
     <header>
@@ -1439,8 +1441,14 @@ end</textarea>
           const fnName = node.base && node.base.name;
           const fn = functions[fnName];
           if (fn) {
-            for (const a of node.arguments) compileExpr(a);
-            emit(OP.CALL, [fn.addr, node.arguments.length]);
+            if (fn.closureSlot !== undefined) {
+              emit(OP.LOAD, fn.closureSlot);
+              for (const a of node.arguments) compileExpr(a);
+              emit(OP.CALLC, node.arguments.length);
+            } else {
+              for (const a of node.arguments) compileExpr(a);
+              emit(OP.CALL, [fn.addr, node.arguments.length]);
+            }
             return;
           }
           if (ROBLOX_PASSTHROUGH) {
@@ -1659,24 +1667,63 @@ end</textarea>
             const __snapFD = snapshot();
             let __qnameFD;
             try {
-            const jmpOver = emit(OP.JMP, 0);
-            const addr = here();
             let qname;
             const isMethod = node.identifier.type === "MemberExpression" && node.identifier.indexer === ":";
             if (node.identifier.type === "Identifier") qname = node.identifier.name;
             else qname = node.identifier.base.name + "." + node.identifier.identifier.name;
-            functions[qname] = { addr };
-            const savedScope = scope, savedNextSlot = nextSlot, savedVararg = varargSlot;
-            scope = {}; nextSlot = 0; varargSlot = 0;
-            if (isMethod) slotFor("self");
-            for (const p of node.parameters) {
-              if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
+            // Detect outer locals this named function CAPTURES (plain-name only).
+            let __caps = [];
+            if (node.identifier.type === "Identifier") {
+              const __used = new Set();
+              (function collect(n){ if(!n||typeof n!=="object")return; if(Array.isArray(n)){n.forEach(collect);return;} if(n.type==="Identifier")__used.add(n.name); for(const k in n){if(k==="type")continue;collect(n[k]);} })(node.body);
+              const __outer = scope;
+              for (const nm of __used) {
+                if (functions[nm]) continue;
+                if (__outer[nm] !== undefined && typeof __outer[nm] === "number") {
+                  if (!__outer.__cells) __outer.__cells = new Set();
+                  __outer.__cells.add(__outer[nm]);
+                  __caps.push({ name: nm, slot: __outer[nm] });
+                }
+              }
             }
-            scope.__nestedNames = namesUsedByNestedFns(node.body);
-            compileBlock(node.body);
-            emitNumber(0); emit(OP.RETURN);
-            scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
-            patch(jmpOver, here());
+            if (__caps.length && node.identifier.type === "Identifier") {
+              // CLOSURE path (cells + upvalues; proven in simulation).
+              const capSlots = __caps.map((c) => c.slot);
+              const closureInstr = emit(OP.CLOSURE, [0, capSlots.length].concat(capSlots));
+              const jmpOver = emit(OP.JMP, 0);
+              const bodyAddr = here();
+              bytecode[closureInstr].arg = [bodyAddr, capSlots.length].concat(capSlots);
+              const savedScope = scope, savedNextSlot = nextSlot, savedVararg = varargSlot;
+              scope = {}; nextSlot = 0; varargSlot = 0; scope.__upvals = {};
+              __caps.forEach((c, i) => { scope.__upvals[c.name] = i; });
+              for (const p of node.parameters) {
+                if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
+              }
+              scope.__nestedNames = namesUsedByNestedFns(node.body);
+              compileBlock(node.body);
+              emitNumber(0); emit(OP.RETURN);
+              scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
+              patch(jmpOver, here());
+              const fnSlot = slotFor(qname);
+              emit(OP.STORE, fnSlot);
+              functions[qname] = { closureSlot: fnSlot };
+            } else {
+              // No captures -> fast plain-address path (unchanged behaviour).
+              const jmpOver = emit(OP.JMP, 0);
+              const addr = here();
+              functions[qname] = { addr };
+              const savedScope = scope, savedNextSlot = nextSlot, savedVararg = varargSlot;
+              scope = {}; nextSlot = 0; varargSlot = 0;
+              if (isMethod) slotFor("self");
+              for (const p of node.parameters) {
+                if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
+              }
+              scope.__nestedNames = namesUsedByNestedFns(node.body);
+              compileBlock(node.body);
+              emitNumber(0); emit(OP.RETURN);
+              scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
+              patch(jmpOver, here());
+            }
             } catch (err) {
               const src = nodeSource(node);
               if (!src) throw err;
@@ -2312,19 +2359,29 @@ end</textarea>
         setStatus("AI diagnosing error...");
 
         const prompt =
-          "You are debugging output from the 'Luripe' Luau obfuscator running in a Roblox executor (e.g. Delta). " +
-          "Luripe has a custom stack-based VM (compiles Lua to bytecode) for logic, and a loadstring 'wrapper' mode for UI/userdata scripts. " +
-          "Common failure causes: (1) VM cannot run Roblox userdata (Color3/UDim2/Enum/Vector2) so it silently stops; " +
-          "(2) loadstring disabled/hooked in the environment; " +
-          "(3) an unsupported Lua construct the compiler emitted a bad opcode for; " +
-          "(4) 'attempt to call a nil value' from a missing global/service; " +
-          "(5) 'attempt to perform arithmetic on a nil value' from a nil constant or stack underflow; " +
-          "(6) too-many-locals / syntax error from a huge script. " +
+          "You are the expert debugger for the 'Luripe' Luau obfuscator running in a Roblox executor (Delta, Synapse, etc.). " +
+          "ARCHITECTURE: Luripe compiles Lua to a CUSTOM STACK-BASED VM bytecode (randomized opcodes, encrypted constants, binary-search dispatch). " +
+          "It supports: locals, arithmetic, comparisons, concat, if/while/for, break, repeat/until, functions, closures + upvalues, " +
+          "multiple assignment, varargs, tables, metatables/OOP (setmetatable/getmetatable, __index/__newindex/operator metamethods), " +
+          "pcall/error (run natively), and Roblox passthrough (Color3/UDim2/Vector/Enum/game/services). " +
+          "Functions/callbacks that escape to native APIs (metamethods, :Connect, table.sort) are spilled to real Lua closures. " +
+          "It does NOT yet support: coroutines, goto/labels, xpcall. " +
+          "KNOWN ERROR SIGNATURES and their SPECIFIC causes: " +
+          "- 'attempt to perform arithmetic (add/sub/...) on a nil value' => a variable read as nil: usually an upvalue/closure capture issue, an uninitialised local, or a global that does not exist in the executor. Name the exact variable from the snippet. " +
+          "- 'attempt to get length of a number value' / '#' errors => internal VM stack imbalance (report as a Luripe bug, suggest trying a slightly simpler equivalent or Wrapper mode as a workaround). " +
+          "- 'attempt to call a nil value' => a missing global/service, a typo'd function name, or an executor that lacks that API. Name it. " +
+          "- 'attempt to call a table value' => a function value used where a Lua function is required (rare now; report as bug). " +
+          "- 'attempt to index nil' => indexing a variable that is nil; name the variable and the field. " +
+          "- silent no-output => likely Roblox userdata the VM cannot express, or loadstring disabled/hooked. " +
+          "- too-many-locals / syntax => script too large for one chunk. " +
+          "RULES: Be SPECIFIC. Name the exact variable/function/field from the snippet. If the line number in the error is the VM loader (line 1), IGNORE it and find the real offending line in the SOURCE. Do not give generic advice. " +
           "Given the ERROR and the original SOURCE, return STRICT JSON only (no markdown): " +
-          "{\"cause\":\"one clear sentence naming the root cause\", " +
-          "\"line\":number-or-null (1-based line in SOURCE if identifiable), " +
+          "{\"cause\":\"one clear sentence naming the root cause, referencing the exact variable/function\", " +
+          "\"variable\":\"the specific variable/function/field name involved, or empty\", " +
+          "\"line\":number-or-null (1-based line in SOURCE, NOT the loader line 1), " +
           "\"snippet\":\"the offending source line if identifiable, else empty\", " +
-          "\"fix\":\"a concrete, specific fix the user can apply\", " +
+          "\"isLuripeBug\":true-or-false (true if this is an internal VM fault rather than a mistake in the user script), " +
+          "\"fix\":\"a concrete, specific fix; if isLuripeBug, suggest the closest working workaround\", " +
           "\"mode\":\"VM\"|\"WRAPPER\"|\"RAW (which Luripe mode is most likely to make this script work)\", " +
           "\"confidence\":\"high\"|\"medium\"|\"low\"}.\n\n" +
           "ERROR:\n" + errText.slice(0, 2000) + "\n\n" +
