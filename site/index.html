@@ -1,4 +1,4 @@
-<!doctype html>
+{"kind":"success","tool_name":"GITHUB_GET_FILE_CONTENTS","data":[{"type":"text","text":"successfully downloaded text file (SHA: fe834e9a8b65eac544613fe06db6ee013094097d)"},{"type":"resource","resource":{"uri":"repo://robloxadmin04-web/Luripe/sha/3b9fc938353d73aeb75bba256a1f5448267c0121/contents/site/index.html","mimeType":"text/html; charset=utf-8","text":"<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -1669,27 +1669,30 @@ end)()\
         // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
         const anti =
           "local " + LS + "=loadstring or load;" +
-          "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
+          "if type(" + LS + ")~='function' then warn(" + E("Luripe: loadstring/load not available", _SC) + ") return end;" +
           // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
           // (instead of a function) or mangles it will fail this and we abort before feeding real source.
           "local _cf=" + LS + "('return 1+1');" +
-          "if type(_cf)~='function' or _cf()~=2 then warn('Luripe: environment tampered (loadstring hook detected)') return end;";
+          "if type(_cf)~='function' or _cf()~=2 then warn(" + E("Luripe: environment tampered (loadstring hook detected)", _SC) + ") return end;";
 
+        const E = (s, SC) => SC + "(" + Array.from(s).map(c => c.charCodeAt(0)).join(",") + ")";
+        const _SC = "_" + Math.random().toString(36).slice(2, 7);
         const loader =
+          "local " + _SC + "=string.char;" +
           J(3) +
           "local " + KT + "={" + scrambled.map(litNum).join(",") + "};" +
           "local " + SD + "=" + KT + "[" + pos.seed + "];" +
           "local " + RK + "=" + KT + "[" + pos.R + "];" +
           "local " + RK2 + "=" + KT + "[" + pos.R2 + "];" +
           "local " + CK + "=" + chk + ";" +
-          (DBG ? "warn('[Luripe] loader started - if you can read this, prints work');" : "") +
+          (DBG ? "warn(" + E("[Luripe] loader started - if you can read this, prints work", _SC) + ");" : "") +
           J(2) +
           blobAsm +
           J(2) +
           // anti-tamper: recompute checksum on the final-layer blob
           "local " + AC + "=#" + B + "%100003;for _i=1,#" + B + " do " + AC + "=(" + AC + "+" + B + "[_i])%100003 end;" +
           (DBG
-            ? "if " + AC + "~=" + CK + " then warn('[Luripe] checksum mismatch - blob corrupted in paste') return end;"
+            ? "if " + AC + "~=" + CK + " then warn(" + E("[Luripe] checksum mismatch - blob corrupted in paste", _SC) + ") return end;"
             : "if " + AC + "~=" + CK + " then return end;") +
           J(2) +
           // reverse layer 3 (index fold) -> layer 2 (round key) -> layer 1 (rolling), rebuild bytes
@@ -1703,17 +1706,17 @@ end)()\
           "local " + D + "=table.concat(" + C + ");" +
           J(2) +
           anti +
-          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          (DBG ? "warn(" + E("[Luripe] decoded ", _SC) + "..tostring(#" + D + ").." + E(" chars, canary OK", _SC) + ");" : "") +
           "local " + FN + ",_err=" + LS + "(" + D + ");" +
-          "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
+          "if not " + FN + " then warn(" + E("Luripe: could not compile decoded source - ", _SC) + "..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
           "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
           "if setfenv and " + G + " then pcall(setfenv," + FN + "," + G + ") end;" +
-          (DBG ? "warn('[Luripe] compiled OK, executing...');" : "") +
+          (DBG ? "warn(" + E("[Luripe] compiled OK, executing...", _SC) + ");" : "") +
           "local _ok,_e2=pcall(" + FN + ");" +
           (DBG
-            ? "if _ok then warn('[Luripe] finished OK') else warn('[Luripe] RUNTIME ERROR: '..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
-            : "if not _ok then warn('Luripe: runtime error - '..tostring(_e2)) end") +
+            ? "if _ok then warn(" + E("[Luripe] finished OK", _SC) + ") else warn(" + E("[Luripe] RUNTIME ERROR: ", _SC) + "..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
+            : "if not _ok then warn(" + E("Luripe: runtime error - ", _SC) + "..tostring(_e2)) end") +
           ";";
         return loader;
       }
