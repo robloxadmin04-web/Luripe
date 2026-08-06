@@ -475,6 +475,8 @@
     <!-- Luripe VM + Luau type-strip (task.spawn fixed) lrp-luau-mshwsgwh @ 2026-08-06T19:28:36.497Z -->
   
     <!-- Luripe VM + deep-fixed Luau preprocessor (balanced continue) lrp-deepfix-mshxkpkw @ 2026-08-06T19:50:34.112Z -->
+  
+    <!-- Luripe VM + encrypted spill (no plain source) lrp-encspill-mshxxk6g @ 2026-08-06T20:00:33.640Z -->
   </head>
   <body>
     <header>
@@ -1939,22 +1941,60 @@ end</textarea>
         // loadstring/load; each island shares getgenv()/_G so game/print/etc work.
         let spillPrelude = "";
         if (spilledFns.length) {
+          // ENCRYPTED SPILL: each spilled function source is encoded as a number
+          // stream (rolling cipher + per-fn round key) and decoded at runtime
+          // before loadstring. This removes ALL plain source from the spill zone
+          // (previously readable long-bracket strings). Same cipher family as
+          // wrapper mode; verified to round-trip exactly.
           const LSV = "_" + Math.random().toString(36).slice(2, 7);
           const GV = "_" + Math.random().toString(36).slice(2, 7);
+          const DEC = "_" + Math.random().toString(36).slice(2, 7);
           spillPrelude += "local " + LSV + "=loadstring or load;";
           spillPrelude += "local " + GV + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;";
+          // runtime decoder: args = (numbers-string, seed, R) -> source string
+          spillPrelude += "local function " + DEC + "(s,sd,rk) " +
+            "local PR,OF,CM=167,7,0xFF;local bs={};local pv=sd;local ix=0;" +
+            "for m in s:gmatch(\"[^,]+\") do ix=ix+1;" +
+            "local e=tonumber(m);local e1=bit32.bxor(e,rk);" +
+            "local ks=bit32.band(bit32.bxor(bit32.bxor(sd,ix*PR),pv),CM);" +
+            "local b=bit32.band(bit32.bxor(e1,ks),CM)-OF;if b<0 then b=b+256 end;" +
+            "bs[ix]=b;pv=e1 end;" +
+            // rebuild string from UTF-8 bytes
+            "local out={};local i=1;while i<=#bs do local c=bs[i];i=i+1;local cp;" +
+            "if c<0x80 then cp=c elseif c>=0xF0 then local c2,c3,c4=bs[i],bs[i+1],bs[i+2];i=i+3;" +
+            "cp=bit32.bor(bit32.lshift(bit32.band(c,0x7),18),bit32.lshift(bit32.band(c2,0x3F),12),bit32.lshift(bit32.band(c3,0x3F),6),bit32.band(c4,0x3F)) " +
+            "elseif c>=0xE0 then local c2,c3=bs[i],bs[i+1];i=i+2;" +
+            "cp=bit32.bor(bit32.lshift(bit32.band(c,0xF),12),bit32.lshift(bit32.band(c2,0x3F),6),bit32.band(c3,0x3F)) " +
+            "elseif c>=0xC0 then local c2=bs[i];i=i+1;" +
+            "cp=bit32.bor(bit32.lshift(bit32.band(c,0x1F),6),bit32.band(c2,0x3F)) else cp=c end;" +
+            "out[#out+1]=utf8 and utf8.char and utf8.char(cp) or string.char(cp) end;" +
+            "return table.concat(out) end;";
           for (const f of spilledFns) {
-            // Encode source as a Lua long-bracket string; pick a safe level.
-            let lvl = 0; let close = "]]";
-            while (f.src.indexOf("]" + "=".repeat(lvl) + "]") !== -1) { lvl++; }
-            const openB = "[" + "=".repeat(lvl) + "[";
-            const closeB = "]" + "=".repeat(lvl) + "]";
-            // The island returns the function value; assign it into the env by key.
             const body = f.src.trim().slice(0, 8) === "function" || f.src.trim().slice(0,6) === "return"
               ? f.src
               : "return " + f.src;
-            const chunk = "local _f=" + LSV + "(" + openB + body + closeB + ");" +
-              "if setfenv then pcall(setfenv,_f," + GV + ") end;" +
+            // encode body -> number stream (rolling cipher + round key)
+            const bytes=[];
+            for (const ch of body){ let cp=ch.codePointAt(0);
+              if(cp<0x80)bytes.push(cp);
+              else if(cp<0x800){bytes.push(0xc0|(cp>>6),0x80|(cp&0x3f));}
+              else if(cp<0x10000){bytes.push(0xe0|(cp>>12),0x80|((cp>>6)&0x3f),0x80|(cp&0x3f));}
+              else {bytes.push(0xf0|(cp>>18),0x80|((cp>>12)&0x3f),0x80|((cp>>6)&0x3f),0x80|(cp&0x3f));}
+            }
+            const OFFSET=7,PRIME=167,CMASK=0xff;
+            const seed=1+Math.floor(Math.random()*254);
+            const R=1+Math.floor(Math.random()*254);
+            const enc=[]; let prev=seed;
+            for(let i=0;i<bytes.length;i++){
+              const ks=(seed ^ ((i+1)*PRIME) ^ prev) & CMASK;
+              let e=((bytes[i]+OFFSET)&CMASK) ^ ks;
+              const e2=e ^ R;
+              enc.push(e2); prev=e;
+            }
+            const numStr = enc.join(",");
+            const chunk = "local _s=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
+              "local _f=" + LSV + "(_s);" +
+              "if setfenv and _f then pcall(setfenv,_f," + GV + ") end;" +
               GV + "[" + JSON.stringify(f.sym) + "]=_f and _f();";
             spillPrelude += chunk;
           }
@@ -2300,6 +2340,7 @@ end</textarea>
             "Roblox userdata constructors passthrough (Color3, UDim2, Vector2, Vector3, Enum, CFrame, BrickColor)",
             "bit32.* (passthrough)",
             "Instance property get/set, event :Connect, task.*/wait/spawn (passthrough)",
+            "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
           ],
