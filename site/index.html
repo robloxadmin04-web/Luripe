@@ -648,6 +648,8 @@ end</textarea>
       function generateVM(OP) {
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
         const PER_HANDLER_MUTATION = true;  // layer 2: opaque predicate + rand names per handler
+        const HANDLER_BODY_MUTATION = true; // layer 2b: junk math woven inside each handler body
+        const MULTIROUND_CONSTS = true;     // layer 4b: second cipher round on the constant pool
         const ANTI_DEBUG = false;           // layer 1: DISABLED - false-positives on executors (silent halt)
         const NESTED_VM = false;            // layer 5: DISABLED - extra indirection can break scope silently
         const VM_DEBUG = window.__luripeVMDebug === true;  // emits warn() beacons inside run() when Verbose is on
@@ -721,22 +723,31 @@ end</textarea>
         // predicate with a dead branch; randomize a junk local per handler.
         function mutate(code) {
           if (!PER_HANDLER_MUTATION) return code;
+          // Layer 2b: per-handler BODY mutation (Luraph-style) - weave junk math
+          // and a dead never-taken branch INTO the real body, so handler internals
+          // differ every build (not just their order). Semantics unchanged.
+          let realBody = code;
+          if (HANDLER_BODY_MUTATION) {
+            const j1 = "_" + Math.random().toString(36).slice(2, 6);
+            const j2 = "_" + Math.random().toString(36).slice(2, 6);
+            const k1 = ((Math.random()*900)|0)+11;
+            const k2 = ((Math.random()*90)|0)+3;
+            const pre = "local " + j1 + "=" + k1 + "*" + k1 + ";local " + j2 + "=" + j1 + "%" + k2 + ";";
+            const dead = "if " + j1 + "<0 then " + j2 + "=" + j2 + "+1 end ";
+            realBody = pre + dead + code;
+          }
           // Control-flow flattening per handler (Luraph-style state machine).
-          // A state var drives a while loop; the real body executes in one
-          // randomly-numbered state, bogus states redirect flow before/after.
           const sv = "_" + Math.random().toString(36).slice(2, 6);
           const done = "_" + Math.random().toString(36).slice(2, 6);
           const jv = "_" + Math.random().toString(36).slice(2, 6);
-          // pick 3 distinct state numbers: entry, real, exit
           const nums3 = [];
           while (nums3.length < 3) { const n = ((Math.random()*900)|0)+10; if (nums3.indexOf(n)<0) nums3.push(n); }
           const sEntry = nums3[0], sReal = nums3[1], sExit = nums3[2];
           const a = ((Math.random()*900)|0)+10;
-          // entry -> real -> exit; a dead branch that never runs (square>=0 always true)
           return "local " + sv + "=" + sEntry + ";local " + done + "=false;" +
             "while not " + done + " do " +
               "if " + sv + "==" + sEntry + " then local " + jv + "=" + a + "*" + a + ";if " + jv + ">=0 then " + sv + "=" + sReal + " else " + sv + "=" + sExit + " end " +
-              "elseif " + sv + "==" + sReal + " then " + code + ";" + sv + "=" + sExit + " " +
+              "elseif " + sv + "==" + sReal + " then " + realBody + ";" + sv + "=" + sExit + " " +
               "else " + done + "=true end " +
             "end";
         }
@@ -788,8 +799,8 @@ end</textarea>
           "  return table.concat(" + N.chars + ")\n" +
           "end\n" +
           "local function " + N.decodeNumber + "(enc)\n" +
-          "  local R=enc[#enc];local t={enc[1]}\n" +
-          "  for i=2,#enc-1 do t[i]=bit32.band(bit32.bxor(enc[i],R),0xFF) end\n" +
+          "  local R2=enc[#enc];local R=enc[#enc-1];local t={enc[1]}\n" +
+          "  for i=2,#enc-2 do t[i]=bit32.band(bit32.bxor(bit32.bxor(enc[i],R2),R),0xFF) end\n" +
           "  return tonumber(" + N.decodeString + "(t)) end\n" +
           "local " + N.BUILTINS + "={\n" +
           "  [1]=function(a) return math.floor(a[1]) end,[2]=function(a) return math.ceil(a[1]) end,\n" +
@@ -893,7 +904,15 @@ end</textarea>
         const base = encodeString(form);
         const R = 1 + Math.floor(Math.random() * 254);
         const out = base.map((b, i) => i === 0 ? b : ((b ^ R) & 0xff));
-        out.push(R); // trailing round key
+        if (MULTIROUND_CONSTS) {
+          // Second cipher round: XOR-fold the already-folded body bytes with a
+          // distinct key R2, stored as an extra trailing element. Decoder strips
+          // R2 first, then R. Doubles the work to recover a constant statically.
+          const R2 = 1 + Math.floor(Math.random() * 254);
+          for (let i = 1; i < out.length; i++) out[i] = (out[i] ^ R2) & 0xff;
+          out.push(R2); // second-round key (outermost trailing)
+        }
+        out.push(R); // first-round key (final trailing)
         return out;
       }
 
