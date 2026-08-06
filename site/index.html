@@ -767,7 +767,7 @@ end</textarea>
           "local " + N.refchar + "=string.char;local " + N.refsub + "=string.sub;" +
           "local " + N.guard + "=function() " +
           "if type(" + N.refchar + ")~=\"function\" then return false end " +
-          "if debug and debug.gethook and debug.gethook()~=nil then return false end " +
+          "if type(" + N.refsub + ")~=\"function\" then return false end " +
           "return true end;" +
           "if not " + N.guard + "() then program={{" + opnum.HALT + "}} end;"
         ) : "";
