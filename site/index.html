@@ -467,6 +467,8 @@
     <!-- Luripe VM closure-upvalue fix lrp-clo-mshtfrze @ 2026-08-06T17:54:45.482Z -->
   
     <!-- Luripe VM v14 hardening (CFG redirects + debug anti-tamper) lrp-hard-mshttukd @ 2026-08-06T18:05:42.013Z -->
+  
+    <!-- Luripe VM CFG-redirect invariant fix lrp-cfgfix-mshu3knv @ 2026-08-06T18:13:15.739Z -->
   </head>
   <body>
     <header>
@@ -928,17 +930,19 @@ end</textarea>
           "    " + N.ctrl + "." + CF.jumped + "=false\n" +
           (CFG_REDIRECTS ? (function(){
             const g1 = "_" + Math.random().toString(36).slice(2,7);
-            const g2 = "_" + Math.random().toString(36).slice(2,7);
-            const k = ((Math.random()*900)|0)+37;
-            // Opaque predicate: (op*op)>=0 is ALWAYS true for numbers, so the
-            // real dispatch always executes; the else-branch is dead but present
-            // in the source, redirecting a static reader down a false path.
-            return "    local " + g1 + "=" + N.op + "*" + N.op + "\n" +
-                   "    local " + g2 + "=(" + g1 + "+" + k + ")%" + k + "\n" +
-                   "    if " + g1 + ">=0 then\n" +
+            const flag = "_" + Math.random().toString(36).slice(2,7);
+            // TRULY invariant opaque predicate. The previous version used
+            // (op*op)>=0, which is NOT invariant: op*op can overflow / become a
+            // non-number on some engines, so the else-branch fired and set ip to
+            // a garbage value, skipping the real opcode (crash: arithmetic on
+            // nil). Now: x==x is true for any real value, and the dead branch is
+            // a pure no-op that NEVER touches ip - so a misread cannot skip an op.
+            return "    local " + g1 + "=" + N.op + "\n" +
+                   "    local " + flag + "=(" + g1 + "==" + g1 + ")\n" +
+                   "    if " + flag + " then\n" +
                    "      " + dispatchTree + "\n" +
                    "    else\n" +
-                   "      " + N.ctrl + "." + CF.ip + "=" + g2 + "\n" + // dead redirect
+                   "      local _decoy=" + g1 + "\n" +
                    "    end\n";
           })() : "    " + dispatchTree + "\n") +
           "    if " + N.ctrl + "." + CF.halt + " then break end\n" +
