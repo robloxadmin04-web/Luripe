@@ -790,7 +790,7 @@ end</textarea>
           "  local " + N.seed + "=enc[1];local " + N.prev + "=" + N.seed + ";local " + N.chars + "={}\n" +
           "  for i=2,#enc do\n" +
           "    local " + N.e + "=enc[i]\n" +
-          "    local " + N.ks + "=bit32.band(bit32.bxor(bit32.bxor(" + N.seed + ",(i-1)*PRIME)," + N.prev + "),CMASK)\n" +
+          "    local " + N.ks + "=bit32.band(bit32.bxor(bit32.bxor(bit32.bxor(" + N.seed + ",(i-1)*PRIME)," + N.prev + ")," + STR_SALT + "),CMASK)\n" +
           "    local " + N.c + "=bit32.band(bit32.bxor(" + N.e + "," + N.ks + "),CMASK)-OFFSET\n" +
           "    if " + N.c + "<0 then " + N.c + "=" + N.c + "+256 end\n" +
           "    " + N.chars + "[i-1]=string.char(bit32.band(" + N.c + ",CMASK));" + N.prev + "=" + N.e + "\n" +
@@ -879,6 +879,9 @@ end</textarea>
       const MULTIROUND_CONSTS = true;     // layer 4b: second cipher round on the constant pool
       const DUAL_VM = true;               // layer: first-stage decryptor (mini-VM) unwraps the instruction stream
       const MBA_CONSTS = true;            // layer: encode some int literals as runtime arithmetic (no literal in pool)
+      // Per-build global salt mixed into every string keystream. Deepens per-string
+      // keys and makes global names (game/getgenv) undecodable without replaying it.
+      const STR_SALT = 1 + Math.floor(Math.random() * 250);
 
       function encodeString(str) {
         const seed = 1 + Math.floor(Math.random() * 254);
@@ -886,7 +889,7 @@ end</textarea>
         let prev = seed;
         for (let i = 0; i < str.length; i++) {
           const c = str.charCodeAt(i);
-          const ks = (seed ^ ((i + 1) * PRIME) ^ prev) & CMASK;
+          const ks = (seed ^ ((i + 1) * PRIME) ^ prev ^ STR_SALT) & CMASK;
           const e = ((c + OFFSET) & CMASK) ^ ks;
           out.push(e);
           prev = e;
