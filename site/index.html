@@ -459,6 +459,8 @@
     <!-- Luripe VM Stage1-3 + synced analyzer lrp-final-mshrubiu @ 2026-08-06T17:10:04.758Z -->
   
     <!-- Luripe VM Stage1-4 + only-used-opcodes lrp-adv-mshs6wab @ 2026-08-06T17:19:51.539Z -->
+  
+    <!-- Luripe VM Stage1-4 + escaping-fn fix lrp-esc-mshshcqo @ 2026-08-06T17:27:59.424Z -->
   </head>
   <body>
     <header>
@@ -1191,11 +1193,27 @@ end</textarea>
           } else if (node.type === "TableConstructorExpression") {
             emit(OP.NEWTABLE);
             let arrayIndex = 1;
+            // Spill any function-valued field to a native Lua closure so it works
+            // as a real metamethod / callback when this table reaches a native API.
+            const fieldVal = (v) => {
+              if (v && (v.type === "FunctionDeclaration" || v.type === "FunctionExpression") && !v.identifier) {
+                const src = nodeSource(v);
+                if (src) {
+                  const gsym = '__lrp_spill_' + (__spillId++);
+                  spilledFns.push({ sym: gsym, src: 'return ' + src });
+                  emit(OP.GETGLOBAL, encodeString(gsym));
+                  return;
+                }
+              }
+              compileExpr(v);
+            };
             for (const field of node.fields) {
               if (field.type === "TableValue") {
-                emit(OP.DUP); emitNumber(arrayIndex++); compileExpr(field.value); emit(OP.SETTABLE);
+                emit(OP.DUP); emitNumber(arrayIndex++); fieldVal(field.value); emit(OP.SETTABLE);
               } else if (field.type === "TableKeyString") {
-                emit(OP.DUP); emit(OP.PUSHSTR, encodeString(field.key.name)); compileExpr(field.value); emit(OP.SETTABLE);
+                emit(OP.DUP); emit(OP.PUSHSTR, encodeString(field.key.name)); fieldVal(field.value); emit(OP.SETTABLE);
+              } else if (field.type === "TableKey") {
+                emit(OP.DUP); compileExpr(field.key); fieldVal(field.value); emit(OP.SETTABLE);
               } else throw new Error("hindi pa sinusuportahan ang table field: " + field.type);
             }
           } else if (node.type === "IndexExpression") {
@@ -1265,6 +1283,27 @@ end</textarea>
           patch(jmpOver, here());
         }
 
+        // Compile one argument. On a NATIVE call, a function-expression argument
+        // is spilled to a real Lua closure (so metamethods/callbacks work); on a
+        // VM-internal call it stays a VM closure. `native` = true for CALLR/
+        // SELFCALL/BUILTIN paths.
+        function compileArg(argNode, native) {
+          if (native && argNode &&
+              (argNode.type === "FunctionDeclaration" || argNode.type === "FunctionExpression") &&
+              !argNode.identifier) {
+            const src = nodeSource(argNode);
+            if (src) {
+              const gsym = '__lrp_spill_' + (__spillId++);
+              // src is `function(...) ... end`; wrap so the island returns it as
+              // a genuine Lua function value bound to the shared global env.
+              spilledFns.push({ sym: gsym, src: 'return ' + src });
+              emit(OP.GETGLOBAL, encodeString(gsym));
+              return;
+            }
+          }
+          compileExpr(argNode);
+        }
+
         function compileCall(node) {
           // Bug 1 fix (Option A): pcall runs natively. Spill the ENTIRE pcall
           // expression as a real Lua island that returns a PACKED table
@@ -1289,7 +1328,7 @@ end</textarea>
           const bname = builtinName(node.base);
           if (bname && BUILTIN_IDS[bname]) {
             const b = BUILTIN_IDS[bname];
-            for (const a of node.arguments) compileExpr(a);
+            for (const a of node.arguments) compileArg(a, true);
             emit(OP.BUILTIN, [b.id, node.arguments.length]); return;
           }
           // Method call: d:speak(x) -> speak(d, x), self=d
@@ -1305,7 +1344,7 @@ end</textarea>
             }
             if (ROBLOX_PASSTHROUGH) {
               compileExpr(node.base.base);
-              for (const a of node.arguments) compileExpr(a);
+              for (const a of node.arguments) compileArg(a, true);
               emit(OP.SELFCALL, [encodeString(methodKey), node.arguments.length]);
               return;
             }
@@ -1322,7 +1361,7 @@ end</textarea>
             }
             if (ROBLOX_PASSTHROUGH) {
               compileExpr(node.base);
-              for (const a of node.arguments) compileExpr(a);
+              for (const a of node.arguments) compileArg(a, true);
               emit(OP.CALLR, node.arguments.length);
               return;
             }
@@ -1339,13 +1378,13 @@ end</textarea>
             // Method call obj:method(...) with unknown method -> runtime SELFCALL
             if (node.base && node.base.type === "MemberExpression" && node.base.indexer === ":") {
               compileExpr(node.base.base);
-              for (const a of node.arguments) compileExpr(a);
+              for (const a of node.arguments) compileArg(a, true);
               emit(OP.SELFCALL, [encodeString(node.base.identifier.name), node.arguments.length]);
               return;
             }
             // Any other callee (global, member, index result) -> runtime CALLR
             compileExpr(node.base);
-            for (const a of node.arguments) compileExpr(a);
+            for (const a of node.arguments) compileArg(a, true);
             emit(OP.CALLR, node.arguments.length);
             return;
           }
