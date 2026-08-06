@@ -649,7 +649,6 @@ end</textarea>
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
         const PER_HANDLER_MUTATION = true;  // layer 2: opaque predicate + rand names per handler
         const HANDLER_BODY_MUTATION = true; // layer 2b: junk math woven inside each handler body
-        const MULTIROUND_CONSTS = true;     // layer 4b: second cipher round on the constant pool
         const ANTI_DEBUG = false;           // layer 1: DISABLED - false-positives on executors (silent halt)
         const NESTED_VM = false;            // layer 5: DISABLED - extra indirection can break scope silently
         const VM_DEBUG = window.__luripeVMDebug === true;  // emits warn() beacons inside run() when Verbose is on
@@ -875,6 +874,9 @@ end</textarea>
 
 
       const OFFSET = 7, PRIME = 167, CMASK = 0xff, HARDENING = true;
+
+      // Module-level so both encodeNumber() and generateVM() can read it.
+      const MULTIROUND_CONSTS = true;     // layer 4b: second cipher round on the constant pool
 
       function encodeString(str) {
         const seed = 1 + Math.floor(Math.random() * 254);
