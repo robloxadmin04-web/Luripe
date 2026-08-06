@@ -1421,10 +1421,28 @@ end</textarea>
         // The emitted first-stage decryptor (mini-VM) reverses this before the real decode.
         const S1 = DUAL_VM ? (1 + Math.floor(Math.random() * 0xFFFFFF)) : 0;
         function stage1(v){ if(!DUAL_VM) return v>>>0; return (((v>>>0) ^ S1) + S1) >>> 0; }
-        const blob = nums.map((n) => stage1(enc(n) >>> 0)).join(",");
+        // ---- Literal-mutation layer (Luraph-style number presentation) ----
+        // Renders an unsigned int as a random Luau-legal literal form (decimal /
+        // 0x hex / 0b binary / underscore-peppered hex). Value is preserved:
+        // Luau's parser reads all forms to the same number, so decode is unaffected.
+        const litNum = (n) => {
+          n = n >>> 0;
+          const p = (Math.random() * 4) | 0;
+          if (p === 0) return String(n);
+          if (p === 1) return (Math.random() < 0.5 ? "0x" : "0X") + n.toString(16);
+          if (p === 2) return (Math.random() < 0.5 ? "0b" : "0B") + n.toString(2);
+          const hex = n.toString(16);
+          let out = "";
+          for (let i = 0; i < hex.length; i++) {
+            out += hex[i];
+            if (i < hex.length - 1 && Math.random() < 0.4) out += "_";
+          }
+          return (Math.random() < 0.5 ? "0x" : "0X") + out;
+        };
+        const blob = nums.map((n) => litNum(stage1(enc(n) >>> 0))).join(",");
 
         // Constant pool serialized as a Lua table of tables (encoded numbers).
-        const constLua = "{" + constPool.map((c) => "{" + c.join(",") + "}").join(",") + "}";
+        const constLua = "{" + constPool.map((c) => "{" + c.map(litNum).join(",") + "}").join(",") + "}";
 
         const r = () => "_" + Math.random().toString(36).slice(2, 7);
         const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r(), VM = r(), S1V = r();
@@ -1437,7 +1455,7 @@ end</textarea>
         for (let i = idxOrder.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [idxOrder[i], idxOrder[j]] = [idxOrder[j], idxOrder[i]]; }
         // valsArr in scrambled index order; namesArr aligned to same scramble.
         const namesArr = idxOrder.map((i) => '"' + OPS[i] + '"').join(",");
-        const valsArr = idxOrder.map((i) => OP[OPS[i]]).join(",");
+        const valsArr = idxOrder.map((i) => litNum(OP[OPS[i]])).join(",");
         const NM = "_" + Math.random().toString(36).slice(2, 7);
         const VL = "_" + Math.random().toString(36).slice(2, 7);
         const opmapBuild =
