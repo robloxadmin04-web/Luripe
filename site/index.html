@@ -1257,7 +1257,12 @@ end</textarea>
         // and emit PUSH-based arithmetic. Guarded to safe integer range; falls back to
         // a normal constant load for floats, big numbers, or when the toggle is off.
         const emitMBA = (v) => {
-          if (!MBA_CONSTS || !Number.isInteger(v) || Math.abs(v) > 100000) { emitNumber(v); return false; }
+          // MBA only for NON-NEGATIVE integers in a safe range. Negative or float
+          // splits could produce constants whose encode/decode edge cases desync
+          // arithmetic-heavy expressions (e.g. maxW / 1040), which surfaced as
+          // "attempt to index number with number". Guarding this keeps the layer
+          // where it is provably safe.
+          if (!MBA_CONSTS || !Number.isInteger(v) || v < 0 || v > 100000) { emitNumber(v); return false; }
           const useSub = Math.random() < 0.5;
           if (useSub) {
             const b = Math.floor(Math.random() * 5000) + 1;
