@@ -455,6 +455,8 @@
     <!-- Luripe VM stage1-2-3 build lrp-s123-mshqxgwj @ 2026-08-06T16:44:32.083Z -->
   
     <!-- Luripe VM Option-A (pcall native + multi-assign fix) lrp-optA-mshrkrm8 @ 2026-08-06T17:02:39.056Z -->
+  
+    <!-- Luripe VM Stage1-3 + synced analyzer lrp-final-mshrubiu @ 2026-08-06T17:10:04.758Z -->
   </head>
   <body>
     <header>
@@ -1985,17 +1987,49 @@ end</textarea>
         btn.disabled = true;
         setStatus("AI analyzing...");
 
-        const supported =
+        let supported =
           "SUPPORTED by the Luripe VM: local variables, numbers, strings, booleans, nil, " +
           "arithmetic (+ - * / %), comparisons (< > <= >= == ~=), concat (..), and/or/not, " +
           "if/elseif/else, while, numeric for, generic for (ipairs/pairs), named functions, " +
           "anonymous functions/closures, method calls obj:m(), qualified calls T.f(), tables, " +
           "multiple returns, varargs, common builtins (math.*, string.*, table.insert/remove/concat, " +
           "tostring, tonumber, type, print), Roblox globals/services passthrough (game, getgenv, " +
-          "workspace, game:GetService, Instance.new), property get/set on Instances.\n" +
-          "NOT reliably supported: heavy userdata-driven UI frameworks with hundreds of property " +
-          "assignments (Color3/UDim2/Vector2/Enum used extensively), setmetatable/metatables, " +
-          "pcall/xpcall, coroutines, goto, repeat/until, bit32, deeply nested UI construction.";
+          "workspace, game:GetService, Instance.new), property get/set on Instances.\n";
+
+        // ============================================================
+        // VM_CAPABILITIES - SINGLE SOURCE OF TRUTH for the analyzer.
+        // Teach the VM a new construct? Move it from `unsupported` to
+        // `supported` HERE (and nowhere else). The AI prompt is generated
+        // from these lists, so the recommendation never drifts from what the
+        // compiler can actually virtualize. Last updated: Stage 1-3.
+        // ============================================================
+        const VM_CAPABILITIES = {
+          version: "stage1-3",
+          supported: [
+            "break (in any loop)",
+            "repeat/until",
+            "multiple returns and multiple assignment (local a,b = f())",
+            "pcall and error (run natively per-call; ok/err returned correctly)",
+            "Roblox userdata constructors passthrough (Color3, UDim2, Vector2, Vector3, Enum, CFrame, BrickColor)",
+            "bit32.* (passthrough)",
+            "Instance property get/set, event :Connect, task.*/wait/spawn (passthrough)",
+          ],
+          unsupported: [
+            "setmetatable / getmetatable / metatables (__index, __newindex, operator metamethods)",
+            "coroutines (coroutine.create/wrap/resume/yield)",
+            "goto / labels",
+            "xpcall (use pcall instead)",
+          ],
+        };
+        supported = supported +
+          "ALSO SUPPORTED in VM mode (added in " + VM_CAPABILITIES.version + "):\n- " +
+          VM_CAPABILITIES.supported.join("\n- ") + "\n\n" +
+          "NOT supported in VM mode - only THESE should ever trigger a WRAPPER recommendation " +
+          "(anything not on this list runs in VM mode):\n- " +
+          VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
+          "IMPORTANT: pcall, error, break, repeat/until, and Roblox userdata (Color3/UDim2/Vector/Enum) " +
+          "are all SUPPORTED now. Do NOT flag them as unsupported. Recommend WRAPPER only if a construct " +
+          "from the NOT-supported list above is present.\n";
 
         const prompt =
           "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
