@@ -877,6 +877,7 @@ end</textarea>
 
       // Module-level so both encodeNumber() and generateVM() can read it.
       const MULTIROUND_CONSTS = true;     // layer 4b: second cipher round on the constant pool
+      const DUAL_VM = true;               // layer: first-stage decryptor (mini-VM) unwraps the instruction stream
 
       function encodeString(str) {
         const seed = 1 + Math.floor(Math.random() * 254);
@@ -1385,13 +1386,18 @@ end</textarea>
           x = U(x ^ (K1 >>> 3));
           return x;
         };
-        const blob = nums.map((n) => enc(n)).join(",");
+        // Stage-1 wrap (dual-VM): after mask-encoding each value, apply a second
+        // reversible transform with key S1 so the on-disk blob is double-wrapped.
+        // The emitted first-stage decryptor (mini-VM) reverses this before the real decode.
+        const S1 = DUAL_VM ? (1 + Math.floor(Math.random() * 0xFFFFFF)) : 0;
+        function stage1(v){ if(!DUAL_VM) return v>>>0; return (((v>>>0) ^ S1) + S1) >>> 0; }
+        const blob = nums.map((n) => stage1(enc(n) >>> 0)).join(",");
 
         // Constant pool serialized as a Lua table of tables (encoded numbers).
         const constLua = "{" + constPool.map((c) => "{" + c.join(",") + "}").join(",") + "}";
 
         const r = () => "_" + Math.random().toString(36).slice(2, 7);
-        const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r(), VM = r();
+        const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r(), VM = r(), S1V = r();
         const gen = generateVM(OP);
         const vmMin = minifyLua(gen.src);
         
@@ -1419,7 +1425,10 @@ end</textarea>
           "local " + B + "=\"" + blob + "\";" +
           "local " + C + "=" + constLua + ";" +
           junk(2) +
-          "local function " + D + "(s)local r={}for m in s:gmatch(\"[^,]+\")do local x=bit32.band(tonumber(m),0xFFFFFFFF);x=bit32.bxor(x,bit32.rshift(" + MK + "1,3));x=bit32.band(x-" + MK + "2,0xFFFFFFFF);x=bit32.bxor(x," + MK + "1);r[#r+1]=bit32.band(x,0xFFFFFFFF) end return r end;" +
+          (DUAL_VM ? "local " + S1V + "=" + S1 + ";" : "") +
+          "local function " + D + "(s)local r={}for m in s:gmatch(\"[^,]+\")do local x=bit32.band(tonumber(m),0xFFFFFFFF);" +
+          (DUAL_VM ? "x=bit32.band(bit32.bxor(bit32.band(x-" + S1V + ",0xFFFFFFFF)," + S1V + "),0xFFFFFFFF);" : "") +
+          "x=bit32.bxor(x,bit32.rshift(" + MK + "1,3));x=bit32.band(x-" + MK + "2,0xFFFFFFFF);x=bit32.bxor(x," + MK + "1);r[#r+1]=bit32.band(x,0xFFFFFFFF) end return r end;" +
           "local " + N + "=" + D + "(" + B + ");" +
           junk(3) +
           "local " + P + "={}local " + I + "=1;while " + I + "<=#" + N + " do local o=" + N + "[" + I + "];" + I + "=" + I + "+1;local t=" + N + "[" + I + "];" + I + "=" + I + "+1;" +
