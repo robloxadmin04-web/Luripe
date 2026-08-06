@@ -1636,6 +1636,21 @@ end</textarea>
         return "vm";
       }
 
+      function downloadOutput(text) {
+        if (!text) return;
+        try {
+          const stamp = Date.now().toString(36);
+          const blob = new Blob([text], { type: "text/plain" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "luripe-" + stamp + ".lua";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+        } catch (e) { /* download blocked; output is still in the box to copy */ }
+      }
       function run() {
         const src = document.getElementById("input").value;
         const outEl = document.getElementById("output");
@@ -1646,16 +1661,18 @@ end</textarea>
         window.__luripeVMDebug = DBG;
         if (mode === "raw") {
           outEl.value = rawBundle(src);
-          setStatus("Raw mode - no protection, runs as-is via executor.", "ok");
+          downloadOutput(outEl.value);
+          setStatus("Raw mode - downloaded. No protection, runs as-is via executor.", "ok");
           return;
         }
         if (mode === "wrapper") {
           try {
             setStatus("Obfuscating (wrapper mode)...");
             outEl.value = wrapperBundle(src, DBG);
+            downloadOutput(outEl.value);
             setStatus(DBG
-              ? "Protected in Wrapper mode (DEBUG ON) - run it and read the [Luripe] messages in your executor console."
-              : "Protected in Wrapper mode - this script uses Roblox userdata (Color3/UDim2/Enum/etc), so VM would not run. Wrapper runs 100%.", "ok");
+              ? "Protected in Wrapper mode (DEBUG ON) - downloaded. Run it and read the [Luripe] messages in your executor console."
+              : "Protected in Wrapper mode - downloaded. Universal compatibility (Color3/UDim2/Enum/getgc/etc all run).", "ok");
           } catch (e) { outEl.value = ""; setStatus(e.message, "err"); }
           return;
         }
@@ -1665,12 +1682,14 @@ end</textarea>
           const { OP, bytecode, constPool } = compile(src);
           const protectedLua = bundle(OP, bytecode, constPool);
           outEl.value = protectedLua;
-          setStatus("Protected in VM mode - " + bytecode.length + " instructions, randomized opcodes.", "ok");
+          downloadOutput(outEl.value);
+          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes.", "ok");
         } catch (e) {
           // VM couldn't handle it -> fall back to wrapper so the script still works.
           try {
             outEl.value = wrapperBundle(src, DBG);
-            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead.", "ok");
+            downloadOutput(outEl.value);
+            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
           } catch (e2) {
             outEl.value = "";
             setStatus(e.message, "err");
