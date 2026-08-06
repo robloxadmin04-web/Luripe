@@ -1370,7 +1370,7 @@ end</textarea>
         const constLua = "{" + constPool.map((c) => "{" + c.join(",") + "}").join(",") + "}";
 
         const r = () => "_" + Math.random().toString(36).slice(2, 7);
-        const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r();
+        const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r(), VM = r();
         const gen = generateVM(OP);
         const vmMin = minifyLua(gen.src);
         
@@ -1403,8 +1403,8 @@ end</textarea>
           junk(3) +
           "local " + P + "={}local " + I + "=1;while " + I + "<=#" + N + " do local o=" + N + "[" + I + "];" + I + "=" + I + "+1;local t=" + N + "[" + I + "];" + I + "=" + I + "+1;" +
           "if t==0 then " + P + "[#" + P + "+1]={o} elseif t==1 then " + P + "[#" + P + "+1]={o," + N + "[" + I + "]};" + I + "=" + I + "+1 else local l=" + N + "[" + I + "];" + I + "=" + I + "+1;local a={}for k=1,l do a[k]=" + N + "[" + I + "];" + I + "=" + I + "+1 end;" + P + "[#" + P + "+1]={o,a} end end;" +
-          vmMin + " " +
-          "run(" + P + "," + M + "," + checksum + "," + C + ")"
+          "local " + VM + "=(function() " + vmMin + " end)();" +
+          VM + ".run(" + P + "," + M + "," + checksum + "," + C + ")"
         );
       }
 
