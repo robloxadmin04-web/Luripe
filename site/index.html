@@ -878,6 +878,7 @@ end</textarea>
       // Module-level so both encodeNumber() and generateVM() can read it.
       const MULTIROUND_CONSTS = true;     // layer 4b: second cipher round on the constant pool
       const DUAL_VM = true;               // layer: first-stage decryptor (mini-VM) unwraps the instruction stream
+      const MBA_CONSTS = true;            // layer: encode some int literals as runtime arithmetic (no literal in pool)
 
       function encodeString(str) {
         const seed = 1 + Math.floor(Math.random() * 254);
@@ -990,7 +991,15 @@ end</textarea>
 
         const CMP = { "<": "LT", ">": "GT", "<=": "LE", ">=": "GE", "==": "EQ", "~=": "NE" };
         const emitJunk = () => {
-          if (HARDENING) { emitNumber(Math.floor(Math.random() * 99999)); emit(OP.POP); }
+          if (!HARDENING) return;
+          // Pick a stack-neutral inert sequence. Each leaves the stack unchanged and
+          // is a sequence of REAL opcodes, so it is counted by the checksum and is
+          // indistinguishable from genuine instructions in the stream.
+          const pick = (Math.random() * 4) | 0;
+          if (pick === 0) { emitNumber(Math.floor(Math.random() * 99999)); emit(OP.POP); }
+          else if (pick === 1) { emitNumber(Math.floor(Math.random() * 9999)); emit(OP.DUP); emit(OP.POP); emit(OP.POP); }
+          else if (pick === 2) { emitNumber(Math.floor(Math.random() * 999)); emitNumber(Math.floor(Math.random() * 999)); emit(OP.ADD); emit(OP.POP); }
+          else { emitNumber(Math.floor(Math.random() * 999)); emitNumber(Math.floor(Math.random() * 999)); emit(OP.POP); emit(OP.POP); }
         };
 
         function builtinName(node) {
@@ -1000,9 +1009,27 @@ end</textarea>
           return null;
         }
 
+        // MBA: encode some integer literals as a runtime arithmetic expression so the
+        // literal value never appears in the constant pool. Split v into a+b (or a-b)
+        // and emit PUSH-based arithmetic. Guarded to safe integer range; falls back to
+        // a normal constant load for floats, big numbers, or when the toggle is off.
+        const emitMBA = (v) => {
+          if (!MBA_CONSTS || !Number.isInteger(v) || Math.abs(v) > 100000) { emitNumber(v); return false; }
+          const useSub = Math.random() < 0.5;
+          if (useSub) {
+            const b = Math.floor(Math.random() * 5000) + 1;
+            const a = v + b;                 // a - b = v
+            emitNumber(a); emitNumber(b); emit(OP.SUB);
+          } else {
+            const a = Math.floor(Math.random() * (Math.abs(v) + 1000));
+            const b = v - a;                 // a + b = v (b may be negative -> still fine)
+            emitNumber(a); emitNumber(b); emit(OP.ADD);
+          }
+          return true;
+        };
         function compileExpr(node) {
           if (node.type === "NumericLiteral") {
-            emitNumber(node.value);
+            if (MBA_CONSTS && Math.random() < 0.6) emitMBA(node.value); else emitNumber(node.value);
           } else if (node.type === "BooleanLiteral") {
             emitNumber(node.value ? 1 : 0);
           } else if (node.type === "NilLiteral") {
