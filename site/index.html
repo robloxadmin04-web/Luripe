@@ -648,8 +648,8 @@ end</textarea>
       function generateVM(OP) {
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
         const PER_HANDLER_MUTATION = true;  // layer 2: opaque predicate + rand names per handler
-        const ANTI_DEBUG = true;            // layer 1: runtime hook/dump guards
-        const NESTED_VM = true;             // layer 5: extra indirection wrapper
+        const ANTI_DEBUG = false;           // layer 1: DISABLED - false-positives on executors (silent halt)
+        const NESTED_VM = false;            // layer 5: DISABLED - extra indirection can break scope silently
         // (layer 3 pure-numeric opcodes + layer 4 multi-round consts are always on)
 
         const used = new Set(["run","OP","program","CONSTS","checksum"]);
