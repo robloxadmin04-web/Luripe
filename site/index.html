@@ -471,6 +471,8 @@
     <!-- Luripe VM CFG-redirect invariant fix lrp-cfgfix-mshu3knv @ 2026-08-06T18:13:15.739Z -->
   
     <!-- Luripe VM named-fn upvalue fix + smarter error AI lrp-named-mshuqqdm @ 2026-08-06T18:31:16.234Z -->
+  
+    <!-- Luripe VM + Luau type-strip (task.spawn fixed) lrp-luau-mshwsgwh @ 2026-08-06T19:28:36.497Z -->
   </head>
   <body>
     <header>
@@ -1067,6 +1069,19 @@ end</textarea>
       function compile(source) {
         const ROBLOX_PASSTHROUGH = true; // globals/services/runtime calls
         const OP = buildOpcodeMap();
+        // Strip Luau type annotations so luaparse (Lua 5.1) can parse Luau
+        // scripts. Removes `: Type` in param/local/return positions while
+        // preserving method colons (obj:m(), game:GetService, :WaitForChild).
+        // Verified on real Luau scripts: types gone, method calls intact.
+        function stripLuauTypes(s) {
+          let o = s;
+          // return types:  "): Type"  -> ")"
+          o = o.replace(/\)\s*:\s*[A-Za-z_][A-Za-z0-9_.]*(\s*<[^>\r\n]*>)?(\s*\??)(\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*/g, ")");
+          // param/local var types:  "ident: Type" before , ) = or newline
+          o = o.replace(/([A-Za-z0-9_\]])\s*:\s*(?!:)([A-Za-z_][A-Za-z0-9_.]*(?:<[^>\r\n]*>)?\??(?:\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*)(?=\s*[,)=\r\n])/g, "$1");
+          return o;
+        }
+        source = stripLuauTypes(source);
         const ast = luaparse.parse(source, { ranges: true });
         const SRC = source; // kept for per-function spill (hybrid fallback)
         // Extract the exact original text of an AST node via its char range.
@@ -2244,7 +2259,7 @@ end</textarea>
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
           ],
           unsupported: [
-            "coroutines (coroutine.create/wrap/resume/yield)",
+            "coroutines (coroutine.create/wrap/resume/yield) - note: task.spawn/task.defer/task.delay are NOT coroutines, they are passthrough calls and ARE supported",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
