@@ -962,7 +962,10 @@ end</textarea>
       function compile(source) {
         const ROBLOX_PASSTHROUGH = true; // globals/services/runtime calls
         const OP = buildOpcodeMap();
-        const ast = luaparse.parse(source);
+        const ast = luaparse.parse(source, { ranges: true });
+        const SRC = source; // kept for per-function spill (hybrid fallback)
+        // Extract the exact original text of an AST node via its char range.
+        const nodeSource = (node) => (node && node.range) ? SRC.slice(node.range[0], node.range[1]) : null;
         const bytecode = [];
 
         const constPool = [];
@@ -982,6 +985,54 @@ end</textarea>
         };
         const patch = (index, target) => { bytecode[index].arg = target; };
         const here = () => bytecode.length + 1;
+
+        // ===== HYBRID FALLBACK (per-function) =====
+        // Instead of failing the whole build when the VM cannot compile a
+        // construct, we snapshot compiler state, try to compile a unit, and on
+        // failure roll back and emit that ONE unit as a loadstring closure that
+        // shares the real global environment. The rest of the script still
+        // virtualizes. spilledFns lists {name, src} we embed at bundle time.
+        const spilledFns = [];
+        let __spillId = 0;
+        const snapshot = () => ({
+          bc: bytecode.length,
+          scope: Object.assign({}, scope),
+          nextSlot, varargSlot,
+          fns: Object.assign({}, functions),
+          consts: constPool.length,
+        });
+        const rollback = (snap) => {
+          bytecode.length = snap.bc;
+          // restore scope object in place (compileExpr closes over `scope`)
+          for (const k in scope) delete scope[k];
+          Object.assign(scope, snap.scope);
+          nextSlot = snap.nextSlot; varargSlot = snap.varargSlot;
+          for (const k in functions) delete functions[k];
+          Object.assign(functions, snap.fns);
+          // drop constants added during the failed attempt (and their index map)
+          while (constPool.length > snap.consts) constPool.pop();
+          for (const [val, idx] of Array.from(constIndex.entries())) {
+            if (idx >= snap.consts) constIndex.delete(val);
+          }
+        };
+        // Emit a named local bound to a spilled closure, then register it so
+        // later name/method/qualified calls resolve through the runtime CALLR/
+        // SELFCALL path (which already exists in the VM).
+        const spillNamed = (qname, luaSrc) => {
+          const gsym = '__lrp_spill_' + (__spillId++);
+          spilledFns.push({ sym: gsym, src: luaSrc });
+          // Make the compiled program fetch the closure from the global env by a
+          // unique key, store it into a local slot under `qname`, so identifier
+          // loads + CALLR find it like any other value.
+          if (qname && qname.indexOf('.') === -1 && qname.indexOf(':') === -1) {
+            const slot = slotFor(qname);
+            emit(OP.GETGLOBAL, encodeString(gsym));
+            emit(OP.STORE, slot);
+          }
+          // qualified/method names (T.f / T:m) are reached at runtime via the
+          // global table itself, so no local binding is required.
+          return gsym;
+        };
 
         const functions = {};
         let scope = {};
@@ -1106,6 +1157,21 @@ end</textarea>
         }
 
         function compileFunctionExpr(node) {
+          const __snap = snapshot();
+          try { return compileFunctionExprInner(node); }
+          catch (err) {
+            const src = nodeSource(node);
+            if (!src) throw err; // cannot recover without original text
+            rollback(__snap);
+            // Bind the anonymous function via a global key, then PUSH it so the
+            // surrounding expression (assignment/call/table) uses it as a value.
+            const gsym = '__lrp_spill_' + (__spillId++);
+            spilledFns.push({ sym: gsym, src: src });
+            emit(OP.GETGLOBAL, encodeString(gsym));
+            return;
+          }
+        }
+        function compileFunctionExprInner(node) {
           // Capture outer locals used inside as upvalue cells.
           const used = new Set();
           (function collect(n){ if(!n||typeof n!=="object")return; if(Array.isArray(n)){n.forEach(collect);return;} if(n.type==="Identifier")used.add(n.name); for(const k in n){if(k==="type")continue;collect(n[k]);} })(node.body);
@@ -1222,8 +1288,33 @@ end</textarea>
           } else throw new Error("hindi sinusuportahan ang assignment target: " + target.type);
         }
 
+        let __blockDepth = 0;
         function compileBlock(body) {
-          for (const stmt of body) { emitJunk(); compileStatement(stmt); }
+          __blockDepth++;
+          const atTop = __blockDepth === 1;
+          for (const stmt of body) {
+            emitJunk();
+            if (atTop) {
+              const __s = snapshot();
+              try { compileStatement(stmt); }
+              catch (err) {
+                const src = nodeSource(stmt);
+                if (!src) { __blockDepth--; throw err; }
+                rollback(__s);
+                // Spill this top-level statement into an immediately-invoked
+                // loadstring island sharing the global env. Emitted via a
+                // zero-arg spilled closure that we then CALLR with 0 args.
+                const gsym = '__lrp_spill_' + (__spillId++);
+                spilledFns.push({ sym: gsym, src: 'return function() ' + src + ' end' });
+                emit(OP.GETGLOBAL, encodeString(gsym));
+                emit(OP.CALLR, 0);
+                emit(OP.POP);
+              }
+            } else {
+              compileStatement(stmt);
+            }
+          }
+          __blockDepth--;
         }
 
         function compileStatement(node) {
@@ -1308,6 +1399,9 @@ end</textarea>
             else if (node.arguments.length === 1) { compileExpr(node.arguments[0]); emit(OP.RETURN); }
             else { for (const a of node.arguments) compileExpr(a); emit(OP.RETURNN, node.arguments.length); }
           } else if (node.type === "FunctionDeclaration" && node.identifier) {
+            const __snapFD = snapshot();
+            let __qnameFD;
+            try {
             const jmpOver = emit(OP.JMP, 0);
             const addr = here();
             let qname;
@@ -1325,6 +1419,27 @@ end</textarea>
             emitNumber(0); emit(OP.RETURN);
             scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
             patch(jmpOver, here());
+            } catch (err) {
+              const src = nodeSource(node);
+              if (!src) throw err;
+              rollback(__snapFD);
+              // derive the declared name for local binding (plain names only)
+              if (node.identifier.type === "Identifier") __qnameFD = node.identifier.name;
+              else __qnameFD = node.identifier.base.name + "." + node.identifier.identifier.name;
+              // Spill: keep the ORIGINAL 'function name(...) ... end' text, then
+              // expose it under the same name so VM calls resolve at runtime.
+              const gsym = spillNamed(__qnameFD, src);
+              // For qualified/method decls (T.f / T:m) also assign into the
+              // global table at runtime so existing SELFCALL/CALLR reach it.
+              if (__qnameFD.indexOf(".") !== -1) {
+                // T.f = <spilled closure>
+                const parts = __qnameFD.split(".");
+                emit(OP.GETGLOBAL, encodeString(parts[0]));
+                emit(OP.PUSHSTR, encodeString(parts.slice(1).join(".")));
+                emit(OP.GETGLOBAL, encodeString(gsym));
+                emit(OP.SETTABLE);
+              }
+            }
           } else if (node.type === "DoStatement") {
             compileBlock(node.body);
           } else throw new Error("hindi sinusuportahan ang statement: " + node.type);
@@ -1332,7 +1447,7 @@ end</textarea>
 
         compileBlock(ast.body);
         emit(OP.HALT);
-        return { OP, bytecode, constPool };
+        return { OP, bytecode, constPool, spilledFns };
       }
 
       function checksumOf(bytecode) {
@@ -1367,12 +1482,13 @@ end</textarea>
         return vmMin;
       }
 
-      function bundle(OP, bytecode, constPool) {
+      function bundle(OP, bytecode, constPool, spilledFns) {
         const checksum = checksumOf(bytecode);
-        return luraphBundle(OP, bytecode, checksum, constPool);
+        return luraphBundle(OP, bytecode, checksum, constPool, spilledFns || []);
       }
 
-      function luraphBundle(OP, bytecode, checksum, constPool) {
+      function luraphBundle(OP, bytecode, checksum, constPool, spilledFns) {
+        spilledFns = spilledFns || [];
         const rn = () => "_" + Math.random().toString(36).slice(2, 7);
         function junkLine() {
           const v = rn(), w = rn(), x = rn();
@@ -1444,7 +1560,34 @@ end</textarea>
           "local " + NM + "={" + namesArr + "};local " + VL + "={" + valsArr + "};" +
           "local " + M + "={};for i=1,#" + NM + " do " + M + "[" + NM + "[i]]=" + VL + "[i] end;";
         
+        // ===== SPILL PRELUDE =====
+        // Define each per-function fallback into the real global env so the
+        // virtualized program can fetch them via GETGLOBAL. Uses the trusted
+        // loadstring/load; each island shares getgenv()/_G so game/print/etc work.
+        let spillPrelude = "";
+        if (spilledFns.length) {
+          const LSV = "_" + Math.random().toString(36).slice(2, 7);
+          const GV = "_" + Math.random().toString(36).slice(2, 7);
+          spillPrelude += "local " + LSV + "=loadstring or load;";
+          spillPrelude += "local " + GV + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;";
+          for (const f of spilledFns) {
+            // Encode source as a Lua long-bracket string; pick a safe level.
+            let lvl = 0; let close = "]]";
+            while (f.src.indexOf("]" + "=".repeat(lvl) + "]") !== -1) { lvl++; }
+            const openB = "[" + "=".repeat(lvl) + "[";
+            const closeB = "]" + "=".repeat(lvl) + "]";
+            // The island returns the function value; assign it into the env by key.
+            const body = f.src.trim().slice(0, 8) === "function" || f.src.trim().slice(0,6) === "return"
+              ? f.src
+              : "return " + f.src;
+            const chunk = "local _f=" + LSV + "(" + openB + body + closeB + ");" +
+              "if setfenv then pcall(setfenv,_f," + GV + ") end;" +
+              GV + "[" + JSON.stringify(f.sym) + "]=_f and _f();";
+            spillPrelude += chunk;
+          }
+        }
         return (
+          spillPrelude +
           junk(4) +
           opmapBuild +
           junk(3) +
@@ -1679,11 +1822,11 @@ end</textarea>
         // VM mode (with auto-fallback to wrapper if compile fails)
         try {
           setStatus("Obfuscating (VM mode)...");
-          const { OP, bytecode, constPool } = compile(src);
-          const protectedLua = bundle(OP, bytecode, constPool);
+          const { OP, bytecode, constPool, spilledFns } = compile(src);
+          const protectedLua = bundle(OP, bytecode, constPool, spilledFns);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
-          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes.", "ok");
+          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
         } catch (e) {
           // VM couldn't handle it -> fall back to wrapper so the script still works.
           try {
