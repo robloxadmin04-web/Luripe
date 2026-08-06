@@ -451,6 +451,8 @@
     </style>
   
     <!-- Luripe hybrid build lrp-mshqn0so @ 2026-08-06T16:36:24.648Z -->
+  
+    <!-- Luripe VM stage1-2-3 build lrp-s123-mshqxgwj @ 2026-08-06T16:44:32.083Z -->
   </head>
   <body>
     <header>
@@ -715,6 +717,15 @@ end</textarea>
           SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+P+"(fn(obj,(table.unpack or unpack)(args,1,ac)))",
           CALLR:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+P+"(fn((table.unpack or unpack)(args,1,ac)))",
           RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();fn((table.unpack or unpack)(args,1,ac))",
+          // Stage 3: real pcall. a = arg count (callee + its args). Pop args and
+          // callee, run under Lua pcall, then push results so that the VM's
+          // multi-assign (STOREMULTI) unpacks `local ok, res = pcall(...)`.
+          // We push res first, then ok, then the count (2), matching RETURNN's
+          // (values..., n) convention consumed by STOREMULTI.
+          PCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();" +
+                     "local res={pcall(fn,(table.unpack or unpack)(args,1,ac))};" +
+                     "local ok=res[1];local v=res[2];" +
+                     P+"(v);"+P+"(ok and 1 or 0);"+P+"(2)",
         };
 
         const missing = OPS.filter((o) => !(o in body));
@@ -931,7 +942,7 @@ end</textarea>
         "RETURN","NEWTABLE","SETTABLE","GETTABLE","CONCAT","BUILTIN","TLEN",
         "MOD","RETURNN","STOREMULTI","VARARG","NOT","NEWCELL","LOADCELL",
         "STORECELL","LOADUP","STOREUP","CLOSURE","CALLC","LOADK",
-        "GETGLOBAL","SELFCALL","CALLR","RCALL",
+        "GETGLOBAL","SELFCALL","CALLR","RCALL","PCALL",
       ];
       function buildOpcodeMap() {
         const nums = [];
@@ -1037,6 +1048,9 @@ end</textarea>
         };
 
         const functions = {};
+        // Stage 2: stack of open loops; each entry collects `break` jumps to
+        // patch to the loop's exit address once the loop body is compiled.
+        const loopStack = [];
         let scope = {};
         let varargSlot = 0;
         let nextSlot = 0;
@@ -1211,6 +1225,18 @@ end</textarea>
         }
 
         function compileCall(node) {
+          // Stage 3: real pcall opcode. pcall(fn, ...) â€” fn may be an identifier,
+          // a member, or an inline function expression. Push fn, then its args,
+          // then PCALL(argc = 1 + nargs). Leaves (res, ok, 2) on the stack for
+          // STOREMULTI to unpack as `local ok, res = pcall(...)`.
+          if (node.base && node.base.type === "Identifier" && node.base.name === "pcall" && node.arguments.length >= 1) {
+            const callee = node.arguments[0];
+            const rest = node.arguments.slice(1);
+            compileExpr(callee);
+            for (const a of rest) compileExpr(a);
+            emit(OP.PCALL, rest.length + 1);
+            return;
+          }
           if (node.base && node.base.type === "Identifier" && node.base.name === "print") {
             compileExpr(node.arguments[0]); emit(OP.PRINT); return;
           }
@@ -1358,9 +1384,12 @@ end</textarea>
             const top = here();
             compileExpr(node.condition);
             const jz = emit(OP.JZ, 0);
+            loopStack.push({ breaks: [] });
             compileBlock(node.body);
             emit(OP.JMP, top);
             patch(jz, here());
+            const __lw = loopStack.pop();
+            for (const b of __lw.breaks) patch(b, here());
           } else if (node.type === "NumericForStatement" || node.type === "ForNumericStatement") {
             const varSlot = slotFor(node.variable.name);
             compileExpr(node.start); emit(OP.STORE, varSlot);
@@ -1372,10 +1401,12 @@ end</textarea>
             const top = here();
             emit(OP.LOAD, varSlot); emit(OP.LOAD, limitSlot); emit(OP.LE);
             const jz = emit(OP.JZ, 0);
+            loopStack.push({ breaks: [] });
             compileBlock(node.body);
             emit(OP.LOAD, varSlot); emit(OP.LOAD, stepSlot); emit(OP.ADD); emit(OP.STORE, varSlot);
             emit(OP.JMP, top);
             patch(jz, here());
+            { const __ln = loopStack.pop(); for (const b of __ln.breaks) patch(b, here()); }
           } else if (node.type === "ForGenericStatement") {
             const iterCall = node.iterators[0];
             const tExpr = iterCall.arguments[0];
@@ -1392,10 +1423,27 @@ end</textarea>
             const jz = emit(OP.JZ, 0);
             emit(OP.LOAD, idxSlot); emit(OP.STORE, keyVar);
             emit(OP.LOAD, tSlot); emit(OP.LOAD, idxSlot); emit(OP.GETTABLE); emit(OP.STORE, valVar);
+            loopStack.push({ breaks: [] });
             compileBlock(node.body);
             emit(OP.LOAD, idxSlot); emitNumber(1); emit(OP.ADD); emit(OP.STORE, idxSlot);
             emit(OP.JMP, top);
             patch(jz, here());
+            { const __lg = loopStack.pop(); for (const b of __lg.breaks) patch(b, here()); }
+          } else if (node.type === "RepeatStatement") {
+            // repeat <body> until <cond>  -> body runs at least once; loop while
+            // cond is FALSE. break jumps to the exit after the condition test.
+            const top = here();
+            loopStack.push({ breaks: [] });
+            compileBlock(node.body);
+            compileExpr(node.condition);
+            // if cond is falsy (==0) jump back to top; else fall through to exit.
+            const jz = emit(OP.JZ, top);
+            const __lr = loopStack.pop();
+            for (const b of __lr.breaks) patch(b, here());
+          } else if (node.type === "BreakStatement") {
+            if (!loopStack.length) throw new Error("break sa labas ng loop");
+            const j = emit(OP.JMP, 0);
+            loopStack[loopStack.length - 1].breaks.push(j);
           } else if (node.type === "ReturnStatement") {
             if (node.arguments.length === 0) { emitNumber(0); emit(OP.RETURN); }
             else if (node.arguments.length === 1) { compileExpr(node.arguments[0]); emit(OP.RETURN); }
@@ -1758,13 +1806,15 @@ end</textarea>
       // Static detector: constructs the VM cannot run reliably in Luau.
       // If a script touches any of these, force Wrapper mode so it actually runs.
       function needsWrapper(src) {
+        // Stage 1: only constructs that need NEW VM semantics force a wrapper hint.
+        // Roblox globals/services/userdata (Color3/UDim2/Vector/Enum/game/task/
+        // CFrame/bit32/Instance.new/services) already run in the VM via the
+        // GETGLOBAL -> GETTABLE -> CALLR/SELFCALL passthrough path, so they are
+        // no longer listed. pcall now has a real opcode (Stage 3). Only metatables
+        // remain unhandled (Stage 4), and even those are per-function spilled in VM
+        // mode rather than forcing a whole-script wrapper.
         var patterns = [
-          /Color3\s*\./, /UDim2\s*\./, /UDim\s*\.\s*new/, /Vector2\s*\./, /Vector3\s*\./,
-          /Enum\s*\./, /Instance\s*\.\s*new/, /\bgame\s*:/, /\bgame\s*\./,
-          /GetService/, /:Connect\b/, /setmetatable/, /getmetatable/,
-          /\btask\s*\./, /\bwait\s*\(/, /\bspawn\s*\(/, /\bpcall\b/, /\bwarn\b/,
-          /TweenService/, /RunService/, /UserInputService/, /:GetChildren/, /:FindFirstChild/,
-          /:WaitForChild/, /:GetDescendants/, /\bworkspace\b/, /BrickColor/, /CFrame\s*\./
+          /setmetatable/, /getmetatable/, /\bcoroutine\s*\./, /\bgoto\b/
         ];
         for (var i = 0; i < patterns.length; i++) if (patterns[i].test(src)) return true;
         return false;
