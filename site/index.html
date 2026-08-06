@@ -477,6 +477,8 @@
     <!-- Luripe VM + deep-fixed Luau preprocessor (balanced continue) lrp-deepfix-mshxkpkw @ 2026-08-06T19:50:34.112Z -->
   
     <!-- Luripe VM + encrypted spill (no plain source) lrp-encspill-mshxxk6g @ 2026-08-06T20:00:33.640Z -->
+  
+    <!-- Luripe VM uniform-call model (no builtin guessing) lrp-uniform-mshz2gj8 @ 2026-08-06T20:32:21.812Z -->
   </head>
   <body>
     <header>
@@ -1463,12 +1465,10 @@ end</textarea>
           if (node.base && node.base.type === "Identifier" && node.base.name === "print") {
             compileExpr(node.arguments[0]); emit(OP.PRINT); return;
           }
-          const bname = builtinName(node.base);
-          if (bname && BUILTIN_IDS[bname]) {
-            const b = BUILTIN_IDS[bname];
-            for (const a of node.arguments) compileArg(a, true);
-            emit(OP.BUILTIN, [b.id, node.arguments.length]); return;
-          }
+          // (BUILTIN hardcoded routing removed â€” Lua resolves library calls
+          // uniformly as GETGLOBAL+GETTABLE+CALL. math.max, string.upper, etc.
+          // now flow through the same runtime CALLR/SELFCALL path as any call,
+          // via the MemberExpression/qualified-call handling below. No guessing.)
           // Method call: d:speak(x) -> speak(d, x), self=d
           if (node.base && node.base.type === "MemberExpression" && node.base.indexer === ":") {
             const methodKey = node.base.identifier.name;
