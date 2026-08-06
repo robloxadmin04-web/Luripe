@@ -784,147 +784,77 @@ end</textarea>
         ) : "";
 
         const src =
-          "local KEY,OFFSET=0x5A,7\
-" +
-          "local PRIME,CMASK=167,0xFF\
-" +
-          "local function " + N.decodeString + "(enc)\
-" +
-          "  local " + N.seed + "=enc[1];local " + N.prev + "=" + N.seed + ";local " + N.chars + "={}\
-" +
-          "  for i=2,#enc do\
-" +
-          "    local " + N.e + "=enc[i]\
-" +
-          "    local " + N.ks + "=bit32.band(bit32.bxor(bit32.bxor(bit32.bxor(" + N.seed + ",(i-1)*PRIME)," + N.prev + ")," + STR_SALT + "),CMASK)\
-" +
-          "    local " + N.c + "=bit32.band(bit32.bxor(" + N.e + "," + N.ks + "),CMASK)-OFFSET\
-" +
-          "    if " + N.c + "<0 then " + N.c + "=" + N.c + "+256 end\
-" +
-          "    " + N.chars + "[i-1]=string.char(bit32.band(" + N.c + ",CMASK));" + N.prev + "=" + N.e + "\
-" +
-          "  end\
-" +
-          "  return table.concat(" + N.chars + ")\
-" +
-          "end\
-" +
-          "local function " + N.decodeNumber + "(enc)\
-" +
-          "  local R2=enc[#enc];local R=enc[#enc-1];local t={enc[1]}\
-" +
-          "  for i=2,#enc-2 do t[i]=bit32.band(bit32.bxor(bit32.bxor(enc[i],R2),R),0xFF) end\
-" +
-          "  return tonumber(" + N.decodeString + "(t)) end\
-" +
-          "local " + N.BUILTINS + "={\
-" +
-          "  [1]=function(a) return math.floor(a[1]) end,[2]=function(a) return math.ceil(a[1]) end,\
-" +
-          "  [3]=function(a) return math.abs(a[1]) end,[4]=function(a) return math.max(a[1],a[2]) end,\
-" +
-          "  [5]=function(a) return math.min(a[1],a[2]) end,[6]=function(a) return string.upper(a[1]) end,\
-" +
-          "  [7]=function(a) return string.lower(a[1]) end,[8]=function(a) return #a[1] end,\
-" +
-          "  [9]=function(a) return string.rep(a[1],a[2]) end,[10]=function(a) return tostring(a[1]) end,\
-" +
-          "  [11]=function(a) return tonumber(a[1]) end,[12]=function(a) table.insert(a[1],a[2]);return 0 end,\
-" +
-          "  [13]=function(a) return math.sqrt(a[1]) end,[14]=function(a) return math.random(a[1],a[2]) end,\
-" +
-          "  [15]=function(a) return a[1]^a[2] end,[16]=function(a) return string.sub(a[1],a[2],a[3]) end,\
-" +
-          "  [17]=function(a) return string.format(a[1],a[2],a[3],a[4]) end,[18]=function(a) return string.reverse(a[1]) end,\
-" +
-          "  [19]=function(a) return string.byte(a[1],a[2]) end,[20]=function(a) return string.char(a[1]) end,\
-" +
-          "  [21]=function(a) return table.remove(a[1],a[2]) end,[22]=function(a) return table.concat(a[1],a[2] or \"\") end,\
-" +
-          "  [23]=function(a) return type(a[1]) end,[24]=function(a) return math.sin(a[1]) end,\
-" +
-          "  [25]=function(a) return math.cos(a[1]) end,\
-" +
-          "}\
-" +
-          "local function " + N.checksumOf + "(program)\
-" +
-          "  local sum=0\
-" +
-          "  for i=1,#program do\
-" +
-          "    local ins=program[i]\
-" +
-          "    sum=(sum+ins[1]*i)%1000003\
-" +
-          "    if type(ins[2])==\"number\" then sum=(sum+ins[2])%1000003 end\
-" +
-          "  end\
-" +
-          "  return sum\
-" +
-          "end\
-" +
-          "local function run(program,OP,checksum,CONSTS)\
-" +
-          "  " + (VM_DEBUG ? "warn(\"[VM] entered run, program len=\"..tostring(#program))\
-  " : "") +
-          antiDebug + "\
-" +
-          "  " + (VM_DEBUG ? "warn(\"[VM] passed anti-debug\")\
-  " : "") +
+          "local KEY,OFFSET=0x5A,7\n" +
+          "local PRIME,CMASK=167,0xFF\n" +
+          "local function " + N.decodeString + "(enc)\n" +
+          "  local " + N.seed + "=enc[1];local " + N.prev + "=" + N.seed + ";local " + N.chars + "={}\n" +
+          "  for i=2,#enc do\n" +
+          "    local " + N.e + "=enc[i]\n" +
+          "    local " + N.ks + "=bit32.band(bit32.bxor(bit32.bxor(bit32.bxor(" + N.seed + ",(i-1)*PRIME)," + N.prev + ")," + STR_SALT + "),CMASK)\n" +
+          "    local " + N.c + "=bit32.band(bit32.bxor(" + N.e + "," + N.ks + "),CMASK)-OFFSET\n" +
+          "    if " + N.c + "<0 then " + N.c + "=" + N.c + "+256 end\n" +
+          "    " + N.chars + "[i-1]=string.char(bit32.band(" + N.c + ",CMASK));" + N.prev + "=" + N.e + "\n" +
+          "  end\n" +
+          "  return table.concat(" + N.chars + ")\n" +
+          "end\n" +
+          "local function " + N.decodeNumber + "(enc)\n" +
+          "  local R2=enc[#enc];local R=enc[#enc-1];local t={enc[1]}\n" +
+          "  for i=2,#enc-2 do t[i]=bit32.band(bit32.bxor(bit32.bxor(enc[i],R2),R),0xFF) end\n" +
+          "  return tonumber(" + N.decodeString + "(t)) end\n" +
+          "local " + N.BUILTINS + "={\n" +
+          "  [1]=function(a) return math.floor(a[1]) end,[2]=function(a) return math.ceil(a[1]) end,\n" +
+          "  [3]=function(a) return math.abs(a[1]) end,[4]=function(a) return math.max(a[1],a[2]) end,\n" +
+          "  [5]=function(a) return math.min(a[1],a[2]) end,[6]=function(a) return string.upper(a[1]) end,\n" +
+          "  [7]=function(a) return string.lower(a[1]) end,[8]=function(a) return #a[1] end,\n" +
+          "  [9]=function(a) return string.rep(a[1],a[2]) end,[10]=function(a) return tostring(a[1]) end,\n" +
+          "  [11]=function(a) return tonumber(a[1]) end,[12]=function(a) table.insert(a[1],a[2]);return 0 end,\n" +
+          "  [13]=function(a) return math.sqrt(a[1]) end,[14]=function(a) return math.random(a[1],a[2]) end,\n" +
+          "  [15]=function(a) return a[1]^a[2] end,[16]=function(a) return string.sub(a[1],a[2],a[3]) end,\n" +
+          "  [17]=function(a) return string.format(a[1],a[2],a[3],a[4]) end,[18]=function(a) return string.reverse(a[1]) end,\n" +
+          "  [19]=function(a) return string.byte(a[1],a[2]) end,[20]=function(a) return string.char(a[1]) end,\n" +
+          "  [21]=function(a) return table.remove(a[1],a[2]) end,[22]=function(a) return table.concat(a[1],a[2] or \"\") end,\n" +
+          "  [23]=function(a) return type(a[1]) end,[24]=function(a) return math.sin(a[1]) end,\n" +
+          "  [25]=function(a) return math.cos(a[1]) end,\n" +
+          "}\n" +
+          "local function " + N.checksumOf + "(program)\n" +
+          "  local sum=0\n" +
+          "  for i=1,#program do\n" +
+          "    local ins=program[i]\n" +
+          "    sum=(sum+ins[1]*i)%1000003\n" +
+          "    if type(ins[2])==\"number\" then sum=(sum+ins[2])%1000003 end\n" +
+          "  end\n" +
+          "  return sum\n" +
+          "end\n" +
+          "local function run(program,OP,checksum,CONSTS)\n" +
+          "  " + (VM_DEBUG ? "warn(\"[VM] entered run, program len=\"..tostring(#program))\n  " : "") +
+          antiDebug + "\n" +
+          "  " + (VM_DEBUG ? "warn(\"[VM] passed anti-debug\")\n  " : "") +
           "  if checksum~=nil and " + N.checksumOf + "(program)~=checksum then " +
           (VM_DEBUG ? "warn(\"[VM] CHECKSUM MISMATCH got=\"..tostring(" + N.checksumOf + "(program))..\" want=\"..tostring(checksum)) " : "") +
-          "error(\"Luripe: tampering detected\") end\
-" +
-          "  " + (VM_DEBUG ? "warn(\"[VM] passed checksum\")\
-  " : "") +
-          "  local " + N.K + "={}\
-" +
-          "  if CONSTS then for i=1,#CONSTS do " + N.K + "[i-1]=" + N.decodeNumber + "(CONSTS[i]) end end\
-" +
-          "  local " + N.stack + ",sp={},0\
-" +
-          "  local function " + N.push + "(v) sp=sp+1;" + N.stack + "[sp]=v end\
-" +
-          "  local function " + N.pop + "() local v=" + N.stack + "[sp];" + N.stack + "[sp]=nil;sp=sp-1;return v end\
-" +
-          "  local function " + N.sp + "() return sp end\
-" +
-          "  local " + N.frame + "={}\
-" +
-          "  local " + N.callStack + "," + N.csTop + "={},0\
-" +
-          "  local " + N.upvals + "=nil\
-" +
-          "  local " + N.H + "={}\
-" +
-          "  local " + N.ctrl + "={" + CF.ip + "=1," + CF.jumped + "=false," + CF.halt + "=false}\
-" +
-          handlerLines.map((l) => "  " + l).join("\
-") + "\
-" +
-          "  while " + N.ctrl + "." + CF.ip + "<=#program do\
-" +
-          "    local " + N.inst + "=program[" + N.ctrl + "." + CF.ip + "]\
-" +
-          "    local " + N.op + "," + N.arg + "=" + N.inst + "[1]," + N.inst + "[2]\
-" +
-          "    " + N.ctrl + "." + CF.jumped + "=false\
-" +
-          "    " + dispatchTree + "\
-" +
-          "    if " + N.ctrl + "." + CF.halt + " then break end\
-" +
-          "    if not " + N.ctrl + "." + CF.jumped + " then " + N.ctrl + "." + CF.ip + "=" + N.ctrl + "." + CF.ip + "+1 end\
-" +
-          "  end\
-" +
-          "end\
-" +
-          "return { run=run, " + N.checksumOf + "=" + N.checksumOf + " }\
-";
+          "error(\"Luripe: tampering detected\") end\n" +
+          "  " + (VM_DEBUG ? "warn(\"[VM] passed checksum\")\n  " : "") +
+          "  local " + N.K + "={}\n" +
+          "  if CONSTS then for i=1,#CONSTS do " + N.K + "[i-1]=" + N.decodeNumber + "(CONSTS[i]) end end\n" +
+          "  local " + N.stack + ",sp={},0\n" +
+          "  local function " + N.push + "(v) sp=sp+1;" + N.stack + "[sp]=v end\n" +
+          "  local function " + N.pop + "() local v=" + N.stack + "[sp];" + N.stack + "[sp]=nil;sp=sp-1;return v end\n" +
+          "  local function " + N.sp + "() return sp end\n" +
+          "  local " + N.frame + "={}\n" +
+          "  local " + N.callStack + "," + N.csTop + "={},0\n" +
+          "  local " + N.upvals + "=nil\n" +
+          "  local " + N.H + "={}\n" +
+          "  local " + N.ctrl + "={" + CF.ip + "=1," + CF.jumped + "=false," + CF.halt + "=false}\n" +
+          handlerLines.map((l) => "  " + l).join("\n") + "\n" +
+          "  while " + N.ctrl + "." + CF.ip + "<=#program do\n" +
+          "    local " + N.inst + "=program[" + N.ctrl + "." + CF.ip + "]\n" +
+          "    local " + N.op + "," + N.arg + "=" + N.inst + "[1]," + N.inst + "[2]\n" +
+          "    " + N.ctrl + "." + CF.jumped + "=false\n" +
+          "    " + dispatchTree + "\n" +
+          "    if " + N.ctrl + "." + CF.halt + " then break end\n" +
+          "    if not " + N.ctrl + "." + CF.jumped + " then " + N.ctrl + "." + CF.ip + "=" + N.ctrl + "." + CF.ip + "+1 end\n" +
+          "  end\n" +
+          "end\n" +
+          "return { run=run, " + N.checksumOf + "=" + N.checksumOf + " }\n";
 
         // Layer 5: nested wrapper. Wrap the whole VM in an extra scope that only
         // exposes run() through an indirection table, hiding the direct entry.
@@ -932,18 +862,11 @@ end</textarea>
         if (NESTED_VM) {
           const W = rid(used), G = rid(used);
           finalSrc =
-            "local " + W + "=(function()\
-" + src + "\
-end)()\
-" +
-            "local " + G + "={}\
-" +
-            G + "[1]=" + W + ".run\
-" +
-            "local function run(program,OP,checksum,CONSTS) return " + G + "[1](program,OP,checksum,CONSTS) end\
-" +
-            "return { run=run, " + N.checksumOf + "=" + W + "." + N.checksumOf + " }\
-";
+            "local " + W + "=(function()\n" + src + "\nend)()\n" +
+            "local " + G + "={}\n" +
+            G + "[1]=" + W + ".run\n" +
+            "local function run(program,OP,checksum,CONSTS) return " + G + "[1](program,OP,checksum,CONSTS) end\n" +
+            "return { run=run, " + N.checksumOf + "=" + W + "." + N.checksumOf + " }\n";
         }
 
         return { src: finalSrc, N, CF, order };
@@ -1426,10 +1349,8 @@ end)()\
       function minifyLua(src) {
         return src
           .replace(/--\[\[[\s\S]*?\]\]/g, "")
-          .replace(/--[^\
-]*/g, "")
-          .split("\
-").map((l) => l.trim()).filter((l) => l.length).join(" ")
+          .replace(/--[^\n]*/g, "")
+          .split("\n").map((l) => l.trim()).filter((l) => l.length).join(" ")
           .replace(/\s+/g, " ");
       }
       function scrambleVM(vmMin) {
@@ -1500,28 +1421,10 @@ end)()\
         // The emitted first-stage decryptor (mini-VM) reverses this before the real decode.
         const S1 = DUAL_VM ? (1 + Math.floor(Math.random() * 0xFFFFFF)) : 0;
         function stage1(v){ if(!DUAL_VM) return v>>>0; return (((v>>>0) ^ S1) + S1) >>> 0; }
-        // ---- Literal-mutation layer (Luraph-style number presentation) ----
-        // Renders an unsigned int as a random Luau-legal literal form (decimal /
-        // 0x hex / 0b binary / underscore-peppered hex). Value is preserved:
-        // Luau's parser reads all forms to the same number, so decode is unaffected.
-        const litNum = (n) => {
-          n = n >>> 0;
-          const p = (Math.random() * 4) | 0;
-          if (p === 0) return String(n);
-          if (p === 1) return (Math.random() < 0.5 ? "0x" : "0X") + n.toString(16);
-          if (p === 2) return (Math.random() < 0.5 ? "0b" : "0B") + n.toString(2);
-          const hex = n.toString(16);
-          let out = "";
-          for (let i = 0; i < hex.length; i++) {
-            out += hex[i];
-            if (i < hex.length - 1 && Math.random() < 0.4) out += "_";
-          }
-          return (Math.random() < 0.5 ? "0x" : "0X") + out;
-        };
-        const blob = nums.map((n) => litNum(stage1(enc(n) >>> 0))).join(",");
+        const blob = nums.map((n) => stage1(enc(n) >>> 0)).join(",");
 
         // Constant pool serialized as a Lua table of tables (encoded numbers).
-        const constLua = "{" + constPool.map((c) => "{" + c.map(litNum).join(",") + "}").join(",") + "}";
+        const constLua = "{" + constPool.map((c) => "{" + c.join(",") + "}").join(",") + "}";
 
         const r = () => "_" + Math.random().toString(36).slice(2, 7);
         const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r(), VM = r(), S1V = r();
@@ -1534,7 +1437,7 @@ end)()\
         for (let i = idxOrder.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [idxOrder[i], idxOrder[j]] = [idxOrder[j], idxOrder[i]]; }
         // valsArr in scrambled index order; namesArr aligned to same scramble.
         const namesArr = idxOrder.map((i) => '"' + OPS[i] + '"').join(",");
-        const valsArr = idxOrder.map((i) => litNum(OP[OPS[i]])).join(",");
+        const valsArr = idxOrder.map((i) => OP[OPS[i]]).join(",");
         const NM = "_" + Math.random().toString(36).slice(2, 7);
         const VL = "_" + Math.random().toString(36).slice(2, 7);
         const opmapBuild =
@@ -1587,17 +1490,6 @@ end)()\
       //   * junk/decoy locals + opaque predicates
       //   * scrambled runtime names
       function wrapperBundle(src, DBG) {
-        const litNum = (n) => {
-          n = n >>> 0;
-          const p = (Math.random() * 4) | 0;
-          if (p === 0) return String(n);
-          if (p === 1) return (Math.random() < 0.5 ? "0x" : "0X") + n.toString(16);
-          if (p === 2) return (Math.random() < 0.5 ? "0b" : "0B") + n.toString(2);
-          const hex = n.toString(16);
-          let out = "";
-          for (let i = 0; i < hex.length; i++) { out += hex[i]; if (i < hex.length - 1 && Math.random() < 0.4) out += "_"; }
-          return (Math.random() < 0.5 ? "0x" : "0X") + out;
-        };
         // UTF-8 encode so any characters survive the byte pipeline.
         const bytes = [];
         for (const ch of src) {
@@ -1661,7 +1553,7 @@ end)()\
         }
         const partVars = parts.map(() => r());
         let blobAsm = "";
-        partVars.forEach((pv, i) => { blobAsm += "local " + pv + "={" + parts[i].map(litNum).join(",") + "};"; });
+        partVars.forEach((pv, i) => { blobAsm += "local " + pv + "={" + parts[i].join(",") + "};"; });
         blobAsm += "local " + B + "={};";
         blobAsm += "for _,_pp in ipairs({" + partVars.join(",") + "}) do for _k=1,#_pp do " + B + "[#" + B + "+1]=_pp[_k] end end;";
 
@@ -1669,30 +1561,27 @@ end)()\
         // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
         const anti =
           "local " + LS + "=loadstring or load;" +
-          "if type(" + LS + ")~='function' then warn(" + E("Luripe: loadstring/load not available", _SC) + ") return end;" +
+          "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
           // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
           // (instead of a function) or mangles it will fail this and we abort before feeding real source.
           "local _cf=" + LS + "('return 1+1');" +
-          "if type(_cf)~='function' or _cf()~=2 then warn(" + E("Luripe: environment tampered (loadstring hook detected)", _SC) + ") return end;";
+          "if type(_cf)~='function' or _cf()~=2 then warn('Luripe: environment tampered (loadstring hook detected)') return end;";
 
-        const E = (s, SC) => SC + "(" + Array.from(s).map(c => c.charCodeAt(0)).join(",") + ")";
-        const _SC = "_" + Math.random().toString(36).slice(2, 7);
         const loader =
-          "local " + _SC + "=string.char;" +
           J(3) +
-          "local " + KT + "={" + scrambled.map(litNum).join(",") + "};" +
+          "local " + KT + "={" + scrambled.join(",") + "};" +
           "local " + SD + "=" + KT + "[" + pos.seed + "];" +
           "local " + RK + "=" + KT + "[" + pos.R + "];" +
           "local " + RK2 + "=" + KT + "[" + pos.R2 + "];" +
           "local " + CK + "=" + chk + ";" +
-          (DBG ? "warn(" + E("[Luripe] loader started - if you can read this, prints work", _SC) + ");" : "") +
+          (DBG ? "warn('[Luripe] loader started - if you can read this, prints work');" : "") +
           J(2) +
           blobAsm +
           J(2) +
           // anti-tamper: recompute checksum on the final-layer blob
           "local " + AC + "=#" + B + "%100003;for _i=1,#" + B + " do " + AC + "=(" + AC + "+" + B + "[_i])%100003 end;" +
           (DBG
-            ? "if " + AC + "~=" + CK + " then warn(" + E("[Luripe] checksum mismatch - blob corrupted in paste", _SC) + ") return end;"
+            ? "if " + AC + "~=" + CK + " then warn('[Luripe] checksum mismatch - blob corrupted in paste') return end;"
             : "if " + AC + "~=" + CK + " then return end;") +
           J(2) +
           // reverse layer 3 (index fold) -> layer 2 (round key) -> layer 1 (rolling), rebuild bytes
@@ -1706,17 +1595,17 @@ end)()\
           "local " + D + "=table.concat(" + C + ");" +
           J(2) +
           anti +
-          (DBG ? "warn(" + E("[Luripe] decoded ", _SC) + "..tostring(#" + D + ").." + E(" chars, canary OK", _SC) + ");" : "") +
+          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
           "local " + FN + ",_err=" + LS + "(" + D + ");" +
-          "if not " + FN + " then warn(" + E("Luripe: could not compile decoded source - ", _SC) + "..tostring(_err)) return end;" +
+          "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
           "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
           "if setfenv and " + G + " then pcall(setfenv," + FN + "," + G + ") end;" +
-          (DBG ? "warn(" + E("[Luripe] compiled OK, executing...", _SC) + ");" : "") +
+          (DBG ? "warn('[Luripe] compiled OK, executing...');" : "") +
           "local _ok,_e2=pcall(" + FN + ");" +
           (DBG
-            ? "if _ok then warn(" + E("[Luripe] finished OK", _SC) + ") else warn(" + E("[Luripe] RUNTIME ERROR: ", _SC) + "..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
-            : "if not _ok then warn(" + E("Luripe: runtime error - ", _SC) + "..tostring(_e2)) end") +
+            ? "if _ok then warn('[Luripe] finished OK') else warn('[Luripe] RUNTIME ERROR: '..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
+            : "if not _ok then warn('Luripe: runtime error - '..tostring(_e2)) end") +
           ";";
         return loader;
       }
@@ -1867,8 +1756,7 @@ end)()\
           "anonymous functions/closures, method calls obj:m(), qualified calls T.f(), tables, " +
           "multiple returns, varargs, common builtins (math.*, string.*, table.insert/remove/concat, " +
           "tostring, tonumber, type, print), Roblox globals/services passthrough (game, getgenv, " +
-          "workspace, game:GetService, Instance.new), property get/set on Instances.\
-" +
+          "workspace, game:GetService, Instance.new), property get/set on Instances.\n" +
           "NOT reliably supported: heavy userdata-driven UI frameworks with hundreds of property " +
           "assignments (Color3/UDim2/Vector2/Enum used extensively), setmetatable/metatables, " +
           "pcall/xpcall, coroutines, goto, repeat/until, bit32, deeply nested UI construction.";
@@ -1878,15 +1766,11 @@ end)()\
           "VM mode = strongest protection (full virtualization) but ONLY runs the supported subset below. " +
           "WRAPPER mode = universal (runs 100% of Luau incl Color3/UDim2/Enum/pcall/task.spawn/metatables/UI) " +
           "but lighter protection. " +
-          supported + "\
-\
-" +
+          supported + "\n\n" +
           "GOAL: recommend the STRONGEST mode that will STILL RUN this exact script without breaking. " +
           "Choose VM only if EVERY construct is in the supported list; if even one unsupported construct " +
           "is present, VM mode would fail at runtime, so you MUST choose WRAPPER. Never sacrifice a working " +
-          "script for stronger protection - a broken VM output is useless.\
-\
-" +
+          "script for stronger protection - a broken VM output is useless.\n\n" +
           "Analyze the following Luau script. Return STRICT JSON only, no markdown, with keys: " +
           "{\"verdict\":\"VM_SAFE\"|\"RISKY\"|\"NOT_VM_SAFE\", " +
           "\"recommendedMode\":\"VM\"|\"WRAPPER\", " +
@@ -1895,14 +1779,9 @@ end)()\
           "\"reasons\":[short bullet reasons], " +
           "\"summary\":\"one-sentence: which mode and why it is the strongest that still runs\"}. " +
           "For each unsupported construct include the 1-based LINE NUMBER and the exact snippet so the user can find it fast. " +
-          "In runtimeRisks, call out anything that would make the script run with NO output and NO error (silent failure).\
-\
-" +
-          "SCRIPT (lines are 1-based):\
-" +
-          src.split("\
-").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\
-").slice(0, 14000);
+          "In runtimeRisks, call out anything that would make the script run with NO output and NO error (silent failure).\n\n" +
+          "SCRIPT (lines are 1-based):\n" +
+          src.split("\n").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\n").slice(0, 14000);
 
         try {
           let raw;
@@ -1996,18 +1875,10 @@ end)()\
           "\"snippet\":\"the offending source line if identifiable, else empty\", " +
           "\"fix\":\"a concrete, specific fix the user can apply\", " +
           "\"mode\":\"VM\"|\"WRAPPER\"|\"RAW (which Luripe mode is most likely to make this script work)\", " +
-          "\"confidence\":\"high\"|\"medium\"|\"low\"}.\
-\
-" +
-          "ERROR:\
-" + errText.slice(0, 2000) + "\
-\
-" +
-          "SOURCE (1-based lines):\
-" +
-          src.split("\
-").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\
-").slice(0, 12000);
+          "\"confidence\":\"high\"|\"medium\"|\"low\"}.\n\n" +
+          "ERROR:\n" + errText.slice(0, 2000) + "\n\n" +
+          "SOURCE (1-based lines):\n" +
+          src.split("\n").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\n").slice(0, 12000);
 
         try {
           const raw = await aiCall(provider, key, prompt);
