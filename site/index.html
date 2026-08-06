@@ -734,7 +734,10 @@ end</textarea>
           STORECELL:"local val="+O+"();local cl="+F+"[a];if cl==nil then cl={v=nil};"+F+"[a]=cl end;cl.v=val",
           LOADUP:   "local u="+N.upvals+" and "+N.upvals+"[a];"+P+"(u and u.v or nil)",
           STOREUP:  "local val="+O+"();local u="+N.upvals+" and "+N.upvals+"[a];if u then u.v=val end",
-          CLOSURE:  "local addr=a[1];local caps=a[2];local ups={};for i=1,#caps do ups[i-1]="+F+"[caps[i]] end;"+P+"({__cl=true,addr=addr,ups=ups})",
+          // Closure arg is FLAT: {addr, nc, cap1, cap2, ...}. The number-stream
+          // encoder cannot represent a NESTED array, so captures are inlined with
+          // a leading count nc. (Fixes "length of a number" from #caps on garbage.)
+          CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do ups[i-1]="+F+"[a[2+i]] end;"+P+"({__cl=true,addr=addr,ups=ups})",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
           GETGLOBAL: "local nm="+N.decodeString+"(a);"+P+"((_ENV or getfenv and getfenv() or _G)[nm])",
           SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+P+"(fn(obj,(table.unpack or unpack)(args,1,ac)))",
@@ -1286,10 +1289,11 @@ end</textarea>
               captures.push(outer[nm]);
             }
           }
-          const closureInstr = emit(OP.CLOSURE, [0, captures.slice()]);
+          // FLAT closure arg: [addr, nc, cap1, cap2, ...] (no nested array).
+          const closureInstr = emit(OP.CLOSURE, [0, captures.length].concat(captures.slice()));
           const jmpOver = emit(OP.JMP, 0);
           const bodyAddr = here();
-          bytecode[closureInstr].arg = [bodyAddr, captures.slice()];
+          bytecode[closureInstr].arg = [bodyAddr, captures.length].concat(captures.slice());
           const savedScope = scope, savedNextSlot = nextSlot, savedVararg = varargSlot;
           scope = {}; nextSlot = 0; varargSlot = 0;
           scope.__upvals = {};
