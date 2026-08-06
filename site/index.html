@@ -453,6 +453,8 @@
     <!-- Luripe hybrid build lrp-mshqn0so @ 2026-08-06T16:36:24.648Z -->
   
     <!-- Luripe VM stage1-2-3 build lrp-s123-mshqxgwj @ 2026-08-06T16:44:32.083Z -->
+  
+    <!-- Luripe VM Option-A (pcall native + multi-assign fix) lrp-optA-mshrkrm8 @ 2026-08-06T17:02:39.056Z -->
   </head>
   <body>
     <header>
@@ -704,7 +706,10 @@ end</textarea>
           CALL:     "local fa,ac=a[1],a[2];local nf={};for k=ac-1,0,-1 do nf[k]="+O+"() end;"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+N.frame+"=nf;"+N.upvals+"=nil;"+CT+"."+CF.ip+"=fa;"+CT+"."+CF.jumped+"=true",
           RETURN:   "local rv="+O+"();local cl="+N.callStack+"["+N.csTop+"];"+N.callStack+"["+N.csTop+"]=nil;"+N.csTop+"="+N.csTop+"-1;"+N.frame+"=cl.f;"+N.upvals+"=cl.u;"+P+"(rv);"+CT+"."+CF.ip+"=cl.r;"+CT+"."+CF.jumped+"=true",
           RETURNN:  "local n=a;local vs={};for k=n,1,-1 do vs[k]="+O+"() end;local cl="+N.callStack+"["+N.csTop+"];"+N.callStack+"["+N.csTop+"]=nil;"+N.csTop+"="+N.csTop+"-1;"+N.frame+"=cl.f;"+N.upvals+"=cl.u;for k=1,n do "+P+"(vs[k]) end;"+P+"(n);"+CT+"."+CF.ip+"=cl.r;"+CT+"."+CF.jumped+"=true",
-          STOREMULTI:"local sl=a;local n="+O+"();local vs={};for k=n,1,-1 do vs[k]="+O+"() end;for k=1,#sl do "+F+"[sl[k]]=vs[k] end",
+          // Bug 2 fix: assign from the top of the stack into targets right-to-left.
+          // No trailing count is consumed; a single-value producer fills the
+          // first target and leaves the rest nil, matching Lua adjust semantics.
+          STOREMULTI:"local sl=a;for k=#sl,1,-1 do "+F+"[sl[k]]="+O+"() end",
           VARARG:   "local st=a;local t={};local n=0;local k=st;while "+F+"[k]~=nil do n=n+1;t[n]="+F+"[k];k=k+1 end;"+P+"(t)",
           NEWCELL:  F+"[a]={v="+O+"()}",
           LOADCELL: "local cl="+F+"[a];"+P+"(cl and cl.v or nil)",
@@ -723,9 +728,17 @@ end</textarea>
           // We push res first, then ok, then the count (2), matching RETURNN's
           // (values..., n) convention consumed by STOREMULTI.
           PCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();" +
-                     "local res={pcall(fn,(table.unpack or unpack)(args,1,ac))};" +
-                     "local ok=res[1];local v=res[2];" +
-                     P+"(v);"+P+"(ok and 1 or 0);"+P+"(2)",
+                     "local pr={pcall(fn,(table.unpack or unpack)(args,1,ac))};" +
+                     "local ok=pr[1] and 1 or 0;local v=pr[2];" +
+                     // STOREMULTI pops n, then vs[n..1]=pop(), then frame[sl[k]]=vs[k].
+                     // Target: sl[1]=ok, sl[2]=res  =>  vs[1]=ok, vs[2]=res.
+                     // pops happen n..1, so first pop -> vs[2], second pop -> vs[1].
+                     // Push order (bottom->top): res, ok, n  => pop n=2, pop ok->vs[2]? no.
+                     // pop order: k=2 pops top(=ok)->vs[2]; k=1 pops next(=res)->vs[1].
+                     // That gives vs[1]=res, vs[2]=ok (WRONG). So push ok first, then res:
+                     // stack bottom->top: ok, res, 2. pop2: k=2->res->vs[2]; k=1->ok->vs[1].
+                     // => vs[1]=ok, vs[2]=res. Correct.
+                     P+"(ok);"+P+"(v);"+P+"(2)",
         };
 
         const missing = OPS.filter((o) => !(o in body));
@@ -1147,6 +1160,7 @@ end</textarea>
             } else throw new Error("hindi sinusuportahan ang logical operator: " + node.operator);
           } else if (node.type === "CallExpression") {
             compileCall(node);
+            if (node.__pcallPacked) { const tmp = nextSlot++; emit(OP.STORE, tmp); emit(OP.LOAD, tmp); emitNumber(1); emit(OP.GETTABLE); }
           } else if (node.type === "TableConstructorExpression") {
             emit(OP.NEWTABLE);
             let arrayIndex = 1;
@@ -1225,17 +1239,22 @@ end</textarea>
         }
 
         function compileCall(node) {
-          // Stage 3: real pcall opcode. pcall(fn, ...) â€” fn may be an identifier,
-          // a member, or an inline function expression. Push fn, then its args,
-          // then PCALL(argc = 1 + nargs). Leaves (res, ok, 2) on the stack for
-          // STOREMULTI to unpack as `local ok, res = pcall(...)`.
-          if (node.base && node.base.type === "Identifier" && node.base.name === "pcall" && node.arguments.length >= 1) {
-            const callee = node.arguments[0];
-            const rest = node.arguments.slice(1);
-            compileExpr(callee);
-            for (const a of rest) compileExpr(a);
-            emit(OP.PCALL, rest.length + 1);
-            return;
+          // Bug 1 fix (Option A): pcall runs natively. Spill the ENTIRE pcall
+          // expression as a real Lua island that returns a PACKED table
+          // {n=<count>, ...} of pcall's results. Push that table on the VM stack;
+          // a following multi-assign is rewritten (see compileStatement) to read
+          // fields out of it. A bare `pcall(...)` call-statement just discards it.
+          if (node.base && node.base.type === "Identifier" && node.base.name === "pcall") {
+            const src = nodeSource(node);
+            if (src) {
+              const gsym = '__lrp_spill_' + (__spillId++);
+              // island: run the real pcall, pack all results into a table with count.
+              spilledFns.push({ sym: gsym, src: 'return function() local __t=table.pack(' + src + '); return __t end' });
+              emit(OP.GETGLOBAL, encodeString(gsym)); // push the island closure
+              emit(OP.CALLR, 0);                         // call it -> pushes packed table
+              node.__pcallPacked = true;                 // mark for STOREMULTI rewrite
+              return;
+            }
           }
           if (node.base && node.base.type === "Identifier" && node.base.name === "print") {
             compileExpr(node.arguments[0]); emit(OP.PRINT); return;
@@ -1349,8 +1368,17 @@ end</textarea>
           if (node.type === "LocalStatement") {
             if (node.variables.length > 1 && node.init.length === 1 && node.init[0] && node.init[0].type === "CallExpression") {
               compileCall(node.init[0]);
-              const slots = node.variables.map((v) => slotFor(v.name));
-              emit(OP.STOREMULTI, slots);
+              if (node.init[0].__pcallPacked) {
+                // stack top = packed table; store into a temp slot, then read fields
+                const tmp = nextSlot++; emit(OP.STORE, tmp);
+                node.variables.forEach((v, i) => {
+                  const slot = slotFor(v.name);
+                  emit(OP.LOAD, tmp); emitNumber(i + 1); emit(OP.GETTABLE); emit(OP.STORE, slot);
+                });
+              } else {
+                const slots = node.variables.map((v) => slotFor(v.name));
+                emit(OP.STOREMULTI, slots);
+              }
             } else {
               for (let i = 0; i < node.variables.length; i++) {
                 const name = node.variables[i].name;
@@ -1361,14 +1389,23 @@ end</textarea>
           } else if (node.type === "AssignmentStatement") {
             if (node.variables.length > 1 && node.init.length === 1 && node.init[0] && node.init[0].type === "CallExpression" && node.variables.every((v) => v.type === "Identifier")) {
               compileCall(node.init[0]);
-              const slots = node.variables.map((v) => slotFor(v.name));
-              emit(OP.STOREMULTI, slots);
+              if (node.init[0].__pcallPacked) {
+                const tmp = nextSlot++; emit(OP.STORE, tmp);
+                node.variables.forEach((v, i) => {
+                  const slot = slotFor(v.name);
+                  emit(OP.LOAD, tmp); emitNumber(i + 1); emit(OP.GETTABLE); emit(OP.STORE, slot);
+                });
+              } else {
+                const slots = node.variables.map((v) => slotFor(v.name));
+                emit(OP.STOREMULTI, slots);
+              }
             } else {
               for (let i = 0; i < node.variables.length; i++)
                 compileAssignTarget(node.variables[i], () => compileExpr(node.init[i]));
             }
           } else if (node.type === "CallStatement") {
             compileCall(node.expression);
+            if (node.expression && node.expression.__pcallPacked) emit(OP.POP);
           } else if (node.type === "IfStatement") {
             const endJumps = [];
             for (const clause of node.clauses) {
