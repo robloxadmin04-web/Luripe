@@ -457,6 +457,8 @@
     <!-- Luripe VM Option-A (pcall native + multi-assign fix) lrp-optA-mshrkrm8 @ 2026-08-06T17:02:39.056Z -->
   
     <!-- Luripe VM Stage1-3 + synced analyzer lrp-final-mshrubiu @ 2026-08-06T17:10:04.758Z -->
+  
+    <!-- Luripe VM Stage1-4 + only-used-opcodes lrp-adv-mshs6wab @ 2026-08-06T17:19:51.539Z -->
   </head>
   <body>
     <header>
@@ -653,7 +655,10 @@ end</textarea>
       
       // Build the VM generator. Returns Lua source as a string given:
       //   names: shared runtime names, H handler table name, ctrl record fields.
-      function generateVM(OP) {
+      function generateVM(OP, usedNames) {
+        // only-used-opcodes: restrict handler generation to opcodes the script
+        // actually emits (plus HALT, always needed). null => emit all.
+        const EFF = usedNames ? OPS.filter((o) => usedNames.has(o) || o === "HALT") : OPS.slice();
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
         const PER_HANDLER_MUTATION = true;  // layer 2: opaque predicate + rand names per handler
         const HANDLER_BODY_MUTATION = true; // layer 2b: junk math woven inside each handler body
@@ -743,7 +748,7 @@ end</textarea>
                      P+"(ok);"+P+"(v);"+P+"(2)",
         };
 
-        const missing = OPS.filter((o) => !(o in body));
+        const missing = EFF.filter((o) => !(o in body));
         if (missing.length) throw new Error("missing handler bodies: " + missing.join(","));
 
         // Layer 2: per-handler mutation. Wrap body in an always-true opaque
@@ -781,15 +786,15 @@ end</textarea>
 
         // Layer 3: PURE-NUMERIC handlers. Emit H[<number>]=... using the literal
         // opcode number (from the OP map), so no opcode NAME string ever appears.
-        const order = shuffle(OPS.slice());
+        const order = shuffle(EFF.slice());
         const opnum = {}; // name -> literal number for this build
-        OPS.forEach((o) => { opnum[o] = OP[o]; });
+        EFF.forEach((o) => { opnum[o] = OP[o]; });
         const handlerLines = order.map((o) =>
           N.H + "[" + opnum[o] + "]=function(a) " + mutate(body[o]) + " end"
         );
         // Binary-search dispatch tree over the numeric opcodes (IronBrew-style),
         // replacing a flat H[op] lookup. Shuffled leaf order per build.
-        const nums = OPS.map((o) => opnum[o]).sort((a,b)=>a-b);
+        const nums = EFF.map((o) => opnum[o]).sort((a,b)=>a-b);
         function bsearch(lo, hi) {
           if (lo > hi) return "error(\"?\")";
           if (lo === hi) return N.H + "[" + nums[lo] + "](" + N.arg + ")";
@@ -843,6 +848,17 @@ end</textarea>
           "  [21]=function(a) return table.remove(a[1],a[2]) end,[22]=function(a) return table.concat(a[1],a[2] or \"\") end,\n" +
           "  [23]=function(a) return type(a[1]) end,[24]=function(a) return math.sin(a[1]) end,\n" +
           "  [25]=function(a) return math.cos(a[1]) end,\n" +
+          // Stage 4 metatable + raw builtins.
+          "  [26]=function(a) return setmetatable(a[1],a[2]) end,\n" +
+          "  [27]=function(a) return getmetatable(a[1]) end,\n" +
+          "  [28]=function(a) return rawget(a[1],a[2]) end,\n" +
+          "  [29]=function(a) rawset(a[1],a[2],a[3]);return a[1] end,\n" +
+          "  [30]=function(a) return rawequal(a[1],a[2]) end,\n" +
+          "  [31]=function(a) return (rawlen and rawlen(a[1])) or #a[1] end,\n" +
+          "  [32]=function(a) return assert(a[1],a[2]) end,\n" +
+          "  [33]=function(a) return select(a[1],a[2]) end,\n" +
+          "  [34]=function(a) return (table.unpack or unpack)(a[1]) end,\n" +
+          "  [35]=function(a) return (table.unpack or unpack)(a[1]) end,\n" +
           "}\n" +
           "local function " + N.checksumOf + "(program)\n" +
           "  local sum=0\n" +
@@ -985,6 +1001,13 @@ end</textarea>
         "table.remove": { id: 21, argc: 2 }, "table.concat": { id: 22, argc: 2 },
         type: { id: 23, argc: 1 }, "math.sin": { id: 24, argc: 1 },
         "math.cos": { id: 25, argc: 1 },
+        // Stage 4: metatable + raw builtins. Our VM tables are real Lua tables,
+        // so once setmetatable is applied, t[k]/t[k]=v/arith honor metamethods
+        // automatically. We just need these callable inside the VM.
+        setmetatable: { id: 26, argc: 2 }, getmetatable: { id: 27, argc: 1 },
+        rawget: { id: 28, argc: 2 }, rawset: { id: 29, argc: 3 },
+        rawequal: { id: 30, argc: 2 }, rawlen: { id: 31, argc: 1 }, assert: { id: 32, argc: 2 },
+        select: { id: 33, argc: 2 }, unpack: { id: 34, argc: 1 }, "table.unpack": { id: 35, argc: 1 },
       };
 
       function compile(source) {
@@ -1007,7 +1030,9 @@ end</textarea>
         };
         const emitNumber = (value) => emit(OP.LOADK, constFor(value));
 
+        const usedOps = new Set();
         const emit = (op, arg) => {
+          usedOps.add(op); // only-used-opcodes: record every emitted opcode
           bytecode.push(arg === undefined ? { op } : { op, arg });
           return bytecode.length - 1;
         };
@@ -1536,7 +1561,7 @@ end</textarea>
 
         compileBlock(ast.body);
         emit(OP.HALT);
-        return { OP, bytecode, constPool, spilledFns };
+        return { OP, bytecode, constPool, spilledFns, usedOps };
       }
 
       function checksumOf(bytecode) {
@@ -1571,13 +1596,20 @@ end</textarea>
         return vmMin;
       }
 
-      function bundle(OP, bytecode, constPool, spilledFns) {
+      function bundle(OP, bytecode, constPool, spilledFns, usedOps) {
         const checksum = checksumOf(bytecode);
-        return luraphBundle(OP, bytecode, checksum, constPool, spilledFns || []);
+        return luraphBundle(OP, bytecode, checksum, constPool, spilledFns || [], usedOps);
       }
 
-      function luraphBundle(OP, bytecode, checksum, constPool, spilledFns) {
+      function luraphBundle(OP, bytecode, checksum, constPool, spilledFns, usedOps) {
         spilledFns = spilledFns || [];
+        // Map emitted opcode NUMBERS back to NAMES for only-used-opcodes.
+        let USED_NAMES = null;
+        if (usedOps) {
+          const numToName = {}; for (const nm of OPS) numToName[OP[nm]] = nm;
+          USED_NAMES = new Set();
+          for (const n of usedOps) if (numToName[n]) USED_NAMES.add(numToName[n]);
+        }
         const rn = () => "_" + Math.random().toString(36).slice(2, 7);
         function junkLine() {
           const v = rn(), w = rn(), x = rn();
@@ -1633,7 +1665,7 @@ end</textarea>
 
         const r = () => "_" + Math.random().toString(36).slice(2, 7);
         const B = r(), D = r(), P = r(), N = r(), I = r(), MK = r(), SM = r(), M = r(), C = r(), VM = r(), S1V = r();
-        const gen = generateVM(OP);
+        const gen = generateVM(OP, USED_NAMES);
         const vmMin = minifyLua(gen.src);
         
         // Encoded opcode map: three arrays + runtime pairing (no NAME=num literal).
@@ -1852,8 +1884,11 @@ end</textarea>
         // no longer listed. pcall now has a real opcode (Stage 3). Only metatables
         // remain unhandled (Stage 4), and even those are per-function spilled in VM
         // mode rather than forcing a whole-script wrapper.
+        // Stage 4: setmetatable/getmetatable are now VM builtins, so metatables
+        // and OOP (__index/__newindex/operator metamethods) run in the VM. Only
+        // coroutines and goto remain genuinely unhandled.
         var patterns = [
-          /setmetatable/, /getmetatable/, /\bcoroutine\s*\./, /\bgoto\b/
+          /\bcoroutine\s*\./, /\bgoto\b/
         ];
         for (var i = 0; i < patterns.length; i++) if (patterns[i].test(src)) return true;
         return false;
@@ -1917,8 +1952,8 @@ end</textarea>
         // VM mode (with auto-fallback to wrapper if compile fails)
         try {
           setStatus("Obfuscating (VM mode)...");
-          const { OP, bytecode, constPool, spilledFns } = compile(src);
-          const protectedLua = bundle(OP, bytecode, constPool, spilledFns);
+          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(src);
+          const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
           setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
@@ -2013,9 +2048,10 @@ end</textarea>
             "Roblox userdata constructors passthrough (Color3, UDim2, Vector2, Vector3, Enum, CFrame, BrickColor)",
             "bit32.* (passthrough)",
             "Instance property get/set, event :Connect, task.*/wait/spawn (passthrough)",
+            "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
+            "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
           ],
           unsupported: [
-            "setmetatable / getmetatable / metatables (__index, __newindex, operator metamethods)",
             "coroutines (coroutine.create/wrap/resume/yield)",
             "goto / labels",
             "xpcall (use pcall instead)",
@@ -2027,9 +2063,9 @@ end</textarea>
           "NOT supported in VM mode - only THESE should ever trigger a WRAPPER recommendation " +
           "(anything not on this list runs in VM mode):\n- " +
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
-          "IMPORTANT: pcall, error, break, repeat/until, and Roblox userdata (Color3/UDim2/Vector/Enum) " +
-          "are all SUPPORTED now. Do NOT flag them as unsupported. Recommend WRAPPER only if a construct " +
-          "from the NOT-supported list above is present.\n";
+          "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
+          "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
+          "unsupported. Recommend WRAPPER only if a construct from the NOT-supported list above is present.\n";
 
         const prompt =
           "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
