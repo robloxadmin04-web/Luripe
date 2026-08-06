@@ -463,6 +463,8 @@
     <!-- Luripe VM Stage1-4 + escaping-fn fix lrp-esc-mshshcqo @ 2026-08-06T17:27:59.424Z -->
   
     <!-- Luripe VM all-handlers fix (only-used-opcodes reverted) lrp-fix-mshszw35 @ 2026-08-06T17:42:24.305Z -->
+  
+    <!-- Luripe VM closure-upvalue fix lrp-clo-mshtfrze @ 2026-08-06T17:54:45.482Z -->
   </head>
   <body>
     <header>
@@ -1108,6 +1110,23 @@ end</textarea>
           return scope[name];
         };
 
+        // Collect names that any NESTED function (closure) references. If such a
+        // name resolves to a local in the CURRENT scope, that local must live in
+        // a shared cell so the closure sees writes. Used to pre-mark cells before
+        // emitting the local's STORE. (Part A of the closure-upvalue fix.)
+        const namesUsedByNestedFns = (bodyNodes) => {
+          const names = new Set();
+          const walkFn = (n) => { // collect ALL identifiers inside a nested fn
+            (function c(x){ if(!x||typeof x!=="object")return; if(Array.isArray(x)){x.forEach(c);return;}
+              if(x.type==="Identifier") names.add(x.name);
+              for(const k in x){ if(k==="type")continue; c(x[k]); } })(n);
+          };
+          (function scan(x){ if(!x||typeof x!=="object")return; if(Array.isArray(x)){x.forEach(scan);return;}
+            if((x.type==="FunctionDeclaration"||x.type==="FunctionExpression")){ walkFn(x.body); return; }
+            for(const k in x){ if(k==="type")continue; scan(x[k]); } })(bodyNodes);
+          return names;
+        };
+
         const CMP = { "<": "LT", ">": "GT", "<=": "LE", ">=": "GE", "==": "EQ", "~=": "NE" };
         const emitJunk = () => {
           if (!HARDENING) return;
@@ -1284,6 +1303,7 @@ end</textarea>
           for (const p of node.parameters) {
             if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
           }
+          scope.__nestedNames = namesUsedByNestedFns(node.body);
           compileBlock(node.body);
           emitNumber(0); emit(OP.RETURN);
           scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
@@ -1418,7 +1438,15 @@ end</textarea>
             valueEmitter();
           };
           if (target.type === "Identifier") {
-            const slot = slotFor(target.name); valueEmitter(); emit(OP.STORE, slot);
+            // Upvalue write -> STOREUP (writes back to the shared cell).
+            if (scope.__upvals && scope.__upvals[target.name] !== undefined) {
+              valueEmitter(); emit(OP.STOREUP, scope.__upvals[target.name]);
+            } else {
+              const slot = slotFor(target.name);
+              // Cell-backed local write -> STORECELL; plain local -> STORE.
+              if (scope.__cells && scope.__cells.has(slot)) { valueEmitter(); emit(OP.STORECELL, slot); }
+              else { valueEmitter(); emit(OP.STORE, slot); }
+            }
           } else if (target.type === "IndexExpression") {
             compileExpr(target.base); compileExpr(target.index); spillEmit(); emit(OP.SETTABLE);
           } else if (target.type === "MemberExpression") {
@@ -1474,7 +1502,16 @@ end</textarea>
               for (let i = 0; i < node.variables.length; i++) {
                 const name = node.variables[i].name;
                 if (node.init[i]) compileExpr(node.init[i]); else emitNumber(0);
-                emit(OP.STORE, slotFor(name));
+                const slot = slotFor(name);
+                // If a nested closure references this local, back it with a cell
+                // so the closure (via upvalue) shares reads/writes. (Part A.)
+                if (scope.__nestedNames && scope.__nestedNames.has(name)) {
+                  if (!scope.__cells) scope.__cells = new Set();
+                  scope.__cells.add(slot);
+                  emit(OP.NEWCELL, slot);
+                } else {
+                  emit(OP.STORE, slot);
+                }
               }
             }
           } else if (node.type === "AssignmentStatement") {
@@ -1593,6 +1630,7 @@ end</textarea>
             for (const p of node.parameters) {
               if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
             }
+            scope.__nestedNames = namesUsedByNestedFns(node.body);
             compileBlock(node.body);
             emitNumber(0); emit(OP.RETURN);
             scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
@@ -1623,6 +1661,7 @@ end</textarea>
           } else throw new Error("hindi sinusuportahan ang statement: " + node.type);
         }
 
+        scope.__nestedNames = namesUsedByNestedFns(ast.body);
         compileBlock(ast.body);
         emit(OP.HALT);
         return { OP, bytecode, constPool, spilledFns, usedOps };
