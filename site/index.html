@@ -1786,6 +1786,17 @@ end</textarea>
                 if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
               }
               scope.__nestedNames = namesUsedByNestedFns(node.body);
+              // Cell-wrap any parameter captured by a still-deeper closure so the
+              // inner LOADUP/LOADCELL sees {v=value}, not a bare value.
+              for (const p of node.parameters) {
+                if (p.type === "VarargLiteral") continue;
+                const psl = scope[p.name];
+                if (scope.__nestedNames && scope.__nestedNames.has(p.name)) {
+                  if (!scope.__cells) scope.__cells = new Set();
+                  scope.__cells.add(psl);
+                  emit(OP.LOAD, psl); emit(OP.NEWCELL, psl);
+                }
+              }
               compileBlock(node.body);
               emitNumber(0); emit(OP.RETURN);
               scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
@@ -1805,6 +1816,23 @@ end</textarea>
                 if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
               }
               scope.__nestedNames = namesUsedByNestedFns(node.body);
+              // A parameter captured by a nested closure must live in a cell so
+              // the closure's upvalue shares reads/writes (fixes "index number
+              // with 'v'" when the captured value is a plain param like makeAdder's x).
+              if (isMethod) { const s0 = scope["self"];
+                if (scope.__nestedNames && scope.__nestedNames.has("self")) {
+                  if (!scope.__cells) scope.__cells = new Set();
+                  scope.__cells.add(s0); emit(OP.LOAD, s0); emit(OP.NEWCELL, s0);
+                } }
+              for (const p of node.parameters) {
+                if (p.type === "VarargLiteral") continue;
+                const psl = scope[p.name];
+                if (scope.__nestedNames && scope.__nestedNames.has(p.name)) {
+                  if (!scope.__cells) scope.__cells = new Set();
+                  scope.__cells.add(psl);
+                  emit(OP.LOAD, psl); emit(OP.NEWCELL, psl);
+                }
+              }
               compileBlock(node.body);
               emitNumber(0); emit(OP.RETURN);
               scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
