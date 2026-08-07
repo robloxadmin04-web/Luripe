@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Luripe - Luau Obfuscator</title>
+    <title>Luripe RE1 - Luau Obfuscator</title>
+    <!-- lrp-reentrant-step1-msjlq2su re-entrant VM + native-callable closures -->
     <script src="https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.min.js"></script>
     <style>
       :root {
@@ -683,7 +684,7 @@ end</textarea>
         // prelude/metamethod paths, so the generated VM was missing handlers.
         // When the program hit a missing opcode, the binary-search dispatch
         // routed to the wrong handler and corrupted the stack ("attempt to get
-        // length of a number value"). We now ALWAYS emit every handler Ã¢â‚¬â€ a
+        // length of a number value"). We now ALWAYS emit every handler ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a
         // slightly larger VM that is guaranteed correct. `usedNames` is ignored.
         const EFF = OPS.slice();
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
@@ -761,7 +762,7 @@ end</textarea>
           // Closure arg is FLAT: {addr, nc, cap1, cap2, ...}. The number-stream
           // encoder cannot represent a NESTED array, so captures are inlined with
           // a leading count nc. (Fixes "length of a number" from #caps on garbage.)
-          CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do local c=a[2+i];if c>=0 then ups[i-1]="+F+"[c] else ups[i-1]=("+N.upvals+" and "+N.upvals+"[-c-1]) end end;"+P+"({__cl=true,addr=addr,ups=ups})",
+          CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do local c=a[2+i];if c>=0 then ups[i-1]="+F+"[c] else ups[i-1]=("+N.upvals+" and "+N.upvals+"[-c-1]) end end;"+P+"(__lrp_mkclosure(addr,ups))",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+
                      "if clo==nil then error('Luripe: attempted to call a nil closure value') end;"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
           GETGLOBAL: "local nm="+N.decodeString+"(a);local _v=nil;"+
@@ -984,7 +985,26 @@ end</textarea>
           "  local " + N.upvals + "=nil\n" +
           "  local " + N.H + "={}\n" +
           "  local " + N.ctrl + "={" + CF.ip + "=1," + CF.jumped + "=false," + CF.halt + "=false}\n" +
+          // --- Step 1: re-entrant closure support (coroutine-isolated frames) ---
+          "  local __lrp_ret\n" +
+          "  local function __vm_enter(__addr,__ups,__args)\n" +
+          "    local co=coroutine.create(function()\n" +
+          "      local sf=" + N.frame + "; local su=" + N.upvals + "; local ssp=sp\n" +
+          "      local scs=" + N.csTop + "; local sip=" + N.ctrl + "." + CF.ip + "\n" +
+          "      " + N.frame + "={}; if __args then for _i=1,#__args do " + N.frame + "[_i-1]=__args[_i] end end\n" +
+          "      " + N.upvals + "=__ups; " + N.ctrl + "." + CF.ip + "=__addr; " + N.ctrl + "." + CF.jumped + "=true\n" +
+          "      __lrp_ret=nil\n" +
+          "      __vm_loop(__addr)\n" +
+          "      " + N.frame + "=sf; " + N.upvals + "=su; sp=ssp; " + N.csTop + "=scs; " + N.ctrl + "." + CF.ip + "=sip\n" +
+          "    end)\n" +
+          "    local ok,err=coroutine.resume(co)\n" +
+          "    if not ok then error(err) end\n" +
+          "    if __lrp_ret then return (table.unpack or unpack)(__lrp_ret,1,__lrp_ret.n or #__lrp_ret) end\n" +
+          "  end\n" +
+          "  local function __lrp_mkclosure(addr,ups) return function(...) return __vm_enter(addr,ups,{...}) end end\n" +
           handlerLines.map((l) => "  " + l).join("\n") + "\n" +
+          "  local function __vm_loop(__floor)\n" +
+          "  local __base=" + N.csTop + "\n" +
           "  while " + N.ctrl + "." + CF.ip + "<=#program do\n" +
           "    local " + N.inst + "=program[" + N.ctrl + "." + CF.ip + "]\n" +
           "    local " + N.op + "," + N.arg + "=" + N.inst + "[1]," + N.inst + "[2]\n" +
@@ -1009,7 +1029,10 @@ end</textarea>
           "    if " + N.ctrl + "." + CF.halt + " then break end\n" +
           (DEBUG_ANTITAMPER ? "    if " + dbgVar + " then break end\n" : "") +
           "    if not " + N.ctrl + "." + CF.jumped + " then " + N.ctrl + "." + CF.ip + "=" + N.ctrl + "." + CF.ip + "+1 end\n" +
+          "    if " + N.csTop + "<__floor and __floor>0 then break end\n" +
           "  end\n" +
+          "  end\n" +
+          "  __vm_loop(0)\n" +
           "end\n" +
           "return { run=run, " + N.checksumOf + "=" + N.checksumOf + " }\n";
 
@@ -1179,7 +1202,7 @@ end</textarea>
 
         function __gotoNorm(s){
           // ::continue:: label at end of a loop body + goto continue -> 'continue'
-          // 1) drop the label declarations (::continue::) â€” they become no-ops
+          // 1) drop the label declarations (::continue::) Ã¢â‚¬â€ they become no-ops
           //    since the continue rewriter injects the loop-tail semantics.
           // 2) turn 'goto continue' into 'continue'.
           let o = s;
@@ -1239,9 +1262,9 @@ end</textarea>
           // ---- BARE GENERIC-FOR NORMALIZE (Luau: for k,v in t do -> for k,v in pairs(t) do) ----
           // Only when the iterator is a single expression that is NOT already a call
           // (ipairs(..)/pairs(..)/next/a function call), i.e. 'in <expr> do' where
-          // <expr> has no '(' â€” wrap it in pairs(). Preserves behaviour for tables.
+          // <expr> has no '(' Ã¢â‚¬â€ wrap it in pairs(). Preserves behaviour for tables.
           o=o.replace(/\bfor\b([^\r\n]*?)\bin\b\s+([A-Za-z_][\w.\[\]]*?)\s+do\b/g, function(m, vars, iter){
-            // skip if iter is a known iterator call form (has '(') â€” already fine
+            // skip if iter is a known iterator call form (has '(') Ã¢â‚¬â€ already fine
             if(/[()]/.test(iter)) return m;
             return "for"+vars+"in pairs("+iter+") do";
           });
@@ -1612,7 +1635,7 @@ end</textarea>
                 // the shared bridge table __LRP_BRIDGE. We inject a prelude that
                 // maps locals <-> bridge on entry/exit, keeping closure semantics.
                 // Prelude: pull current values in; Postlude via __index/__newindex
-                // is overkill Ã¢â‚¬â€ instead alias reads/writes with a metatable proxy.
+                // is overkill ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â instead alias reads/writes with a metatable proxy.
                 // Simpler + robust: wrap the user fn so the bridged names become
                 // upvalues initialized from the bridge and written back after call.
                 const decls = bridged.map(n => "local "+n+"=__LRP_BRIDGE["+JSON.stringify(n)+"]").join(";");
@@ -1628,7 +1651,7 @@ end</textarea>
                     "local __r={__f(...)}; " + writes + "; " +
                     "return (table.unpack or unpack)(__r) end end)()";
                 spilledFns.push({ sym: gsym, src: wrapped, bridged: bridged.slice() });
-                // NOTE: do NOT publish to the bridge here Ã¢â‚¬â€ emitting LOAD+BRIDGESET
+                // NOTE: do NOT publish to the bridge here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â emitting LOAD+BRIDGESET
                 // mid-argument-assembly corrupts the call's stack. The bridge is
                 // filled by mirror-on-assign (after the local is written) and read
                 // by the wrapper at fire-time. Seed any already-known values now via
@@ -1666,7 +1689,7 @@ end</textarea>
           }
           // (print special-case removed: multi-arg print now uses the normal CALLR path)
           
-          // (BUILTIN hardcoded routing removed Ã¢â‚¬â€ Lua resolves library calls
+          // (BUILTIN hardcoded routing removed ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Lua resolves library calls
           // uniformly as GETGLOBAL+GETTABLE+CALL. math.max, string.upper, etc.
           // now flow through the same runtime CALLR/SELFCALL path as any call,
           // via the MemberExpression/qualified-call handling below. No guessing.)
@@ -2264,7 +2287,7 @@ end</textarea>
             "local ok2,rv=pcall(cf);" +
             "if not ok2 or rv~=" + (_cA + _cB) + " then return nil end;" +
             "return f end)();" +
-            // if resolution failed (hooked/removed), skip spill entirely â€” the VM
+            // if resolution failed (hooked/removed), skip spill entirely Ã¢â‚¬â€ the VM
             // core still runs; only un-virtualizable fallbacks are dropped.
             "if type(" + LSV + ")~='function' then " + LSV + "=nil end;";
           spillPrelude += "local " + GV + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;";
@@ -2782,7 +2805,7 @@ end</textarea>
           const newSrc = rep.rewritten;
           if(!rep.changed || newSrc.trim()===src.trim()){
             window.__luripeAssisted=null;
-            setStatus("AI Assist: nothing to change â€” VM coverage already maximal.","ok");
+            setStatus("AI Assist: nothing to change Ã¢â‚¬â€ VM coverage already maximal.","ok");
             if(btn) btn.disabled=false; return;
           }
           // VERIFY: must parse AND not increase spills. Prefer fewer spills.
@@ -2791,7 +2814,7 @@ end</textarea>
             newSpill!==null && (baseSpill===null || newSpill<=baseSpill);
           if(!acceptable){
             window.__luripeAssisted=null;
-            setStatus("AI Assist: rewrite rejected (did not improve VM coverage) â€” original kept.","err");
+            setStatus("AI Assist: rewrite rejected (did not improve VM coverage) Ã¢â‚¬â€ original kept.","err");
             if(btn) btn.disabled=false; return;
           }
           window.__luripeAssisted = newSrc;
@@ -2801,11 +2824,11 @@ end</textarea>
           aiPanelShow('<div style="background:var(--panel);border:1px solid var(--border-strong);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--text)">' +
             '<b>AI Assist applied.</b> VM coverage: <b>'+esc(before)+'</b> &rarr; <b>'+esc(after)+'</b>. ' +
             'The rewritten script will be used on the next Obfuscate (VM mode).'+notes+'</div>');
-          setStatus("AI Assist ready â€” press Obfuscate to VM the improved script.","ok");
+          setStatus("AI Assist ready Ã¢â‚¬â€ press Obfuscate to VM the improved script.","ok");
         } catch(e){
           window.__luripeAssisted=null;
           aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px">AI Assist error: '+esc(e.message)+'</div>');
-          setStatus("AI Assist failed â€” original kept.","err");
+          setStatus("AI Assist failed Ã¢â‚¬â€ original kept.","err");
         } finally { if(btn) btn.disabled=false; }
       }
 
