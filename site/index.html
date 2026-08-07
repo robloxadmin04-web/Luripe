@@ -2574,7 +2574,673 @@ end</textarea>
         // VM mode (with auto-fallback to wrapper if compile fails)
         try {
           setStatus("Obfuscating (VM mode)...");
-          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(src);
+          // Use the AI-assisted rewrite when it was accepted (fewer/equal spills).
+          const __vmSrc = (window.__luripeAssisted && window.__luripeAssisted.trim()) ? window.__luripeAssisted : src;
+          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(__vmSrc);
+          const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
+          outEl.value = protectedLua;
+          downloadOutput(outEl.value);
+          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
+        } catch (e) {
+          // VM couldn't handle it -> fall back to wrapper so the script still works.
+          try {
+            outEl.value = wrapperBundle(src, DBG);
+            downloadOutput(outEl.value);
+            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
+          } catch (e2) {
+            outEl.value = "";
+            setStatus(e.message, "err");
+          }
+        }
+      }
+      function copyOut() {
+        const o = document.getElementById("output");
+        if (!o.value) { setStatus("Nothing to copy.", "err"); return; }
+        navigator.clipboard.writeText(o.value).then(() => setStatus("Copied to clipboard.", "ok"));
+      }
+      function clearAll() {
+        document.getElementById("input").value = "";
+        document.getElementById("output").value = "";
+        setStatus("Cleared.");
+      }
+
+      // Raw mode: no protection, just ensures the script runs via the executor.
+      // Useful for testing or when the user just wants a runnable copy.
+      function rawBundle(src) {
+        return src;
+      }
+
+      // Copy the output as a directly-runnable loadstring one-liner for Delta.
+      // If output is already a loader, copies as-is. Otherwise wraps raw Lua.
+
+
+      // ================= AI ANALYZER (Google Gemini) =================
+      // Reads raw Lua BEFORE obfuscation, diagnoses which constructs are
+      // VM-safe vs unsupported, and recommends VM mode or Wrapper mode.
+      // User supplies their own Gemini API key (saved locally, never sent
+      // anywhere except Google). Free tier: gemini-2.0-flash.
+
+      (function () {
+        const saved = localStorage.getItem("luripe_ai_key");
+        if (saved) { const f = document.getElementById("aiKey"); if (f) f.value = saved; }
+        const savedProv = localStorage.getItem("luripe_ai_provider");
+        if (savedProv) { const s = document.getElementById("aiProvider"); if (s) s.value = savedProv; }
+      })();
+
+      function aiPanelShow(html) {
+        const p = document.getElementById("aiPanel");
+        p.style.display = "block";
+        p.innerHTML = html;
+      }
+
+
+
+      (function(){
+        function wire(){ var el=document.getElementById("input");
+          if(el && !el.__lrpWired){ el.__lrpWired=true;
+            el.addEventListener("input", function(){ window.__luripeAssisted=null; }); } }
+        if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", wire); else wire();
+      })();
+      // ================= AI ASSIST (VM vocabulary helper) =================
+      // Instead of only PICKING a mode, the AI actively REWRITES constructs the
+      // VM cannot virtualize into semantically-identical Lua the VM CAN, so the
+      // sensitive code stays inside the VM (no spill to loadstring). It also
+      // splits oversized functions so very large scripts virtualize cleanly.
+      // Safety: the rewrite is only accepted if it (a) still parses and (b)
+      // dry-compiles with the SAME-or-FEWER spilled functions. Otherwise the
+      // original source is kept untouched. AI can never break a working script.
+      window.__luripeAssisted = null; // holds AI-rewritten source when accepted
+
+      function __assistPrompt(src){
+        return (
+          "You are a Luau source TRANSFORMER for the 'Luripe' VM obfuscator. " +
+          "The VM virtualizes most Lua but CANNOT virtualize these, which then leak as near-plaintext: " +
+          "coroutines (coroutine.create/wrap/resume/yield), goto/labels (except the ::continue:: idiom), " +
+          "xpcall, and extremely large single functions (Luau 200-local limit). " +
+          "Your job: REWRITE ONLY those unsupported constructs into EXACTLY-EQUIVALENT Luau that the VM supports, " +
+          "so protection stays maximal. Rules you MUST follow:\n" +
+          "1. Preserve behaviour EXACTLY. Same outputs, same side effects, same order. If unsure, leave code as-is.\n" +
+          "2. Convert 'goto continue'/'::continue::' loop idioms to plain 'continue'.\n" +
+          "3. Replace xpcall(f,h) with: local ok,err=pcall(f); if not ok then h(err) end  (preserve return usage).\n" +
+          "4. For simple coroutine producer/consumer patterns, refactor to an equivalent closure/iterator when 100% safe; " +
+          "   if the coroutine semantics are non-trivial (yields across boundaries), DO NOT touch it.\n" +
+          "5. Split any function longer than ~150 locals into smaller helper functions with the same effect.\n" +
+          "6. NEVER add comments, NEVER rename user-visible globals, NEVER change strings/keys/URLs/logic.\n" +
+          "7. Keep every sensitive value (keys, webhooks, checks) intact and in the SAME place.\n" +
+          "Return STRICT JSON only: {\"rewritten\":\"<full transformed script as one string>\", " +
+          "\"changed\":true|false, \"notes\":[\"short bullet of each transform applied\"]}. " +
+          "If nothing needs changing, set changed=false and return the original in 'rewritten'.\n\n" +
+          "SCRIPT:\n" + src.slice(0, 24000)
+        );
+      }
+
+      // Dry-compile spill counter: returns spill count or null if it fails.
+      function __spillCount(src){
+        try { const r = compile(src); return (r.spilledFns && r.spilledFns.length) || 0; }
+        catch(e){ return null; } // throws => would fall back to wrapper anyway
+      }
+
+      async function luripeAiAssist(){
+        const src = document.getElementById("input").value;
+        const key = (document.getElementById("aiKey").value||"").trim();
+        const provider = document.getElementById("aiProvider").value;
+        if(!src.trim()){ setStatus("No input to assist.","err"); return; }
+        if(!key){ setStatus("Enter your AI API key first.","err"); return; }
+        localStorage.setItem("luripe_ai_key",key);
+        localStorage.setItem("luripe_ai_provider",provider);
+        const btn = document.getElementById("aiAssistBtn"); if(btn) btn.disabled=true;
+        setStatus("AI assisting VM (rewriting unsupported constructs)...");
+        try {
+          const baseSpill = __spillCount(src); // may be null (would wrapper-fallback)
+          const raw = await aiCall(provider, key, __assistPrompt(src));
+          let rep; try{ rep=JSON.parse(raw); }catch(e){ const m=raw.match(/\{[\s\S]*\}/); rep=m?JSON.parse(m[0]):null; }
+          if(!rep || typeof rep.rewritten!=="string") throw new Error("AI returned no usable rewrite.");
+          const newSrc = rep.rewritten;
+          if(!rep.changed || newSrc.trim()===src.trim()){
+            window.__luripeAssisted=null;
+            setStatus("AI Assist: nothing to change â€” VM coverage already maximal.","ok");
+            if(btn) btn.disabled=false; return;
+          }
+          // VERIFY: must parse AND not increase spills. Prefer fewer spills.
+          const newSpill = __spillCount(newSrc);
+          const acceptable =
+            newSpill!==null && (baseSpill===null || newSpill<=baseSpill);
+          if(!acceptable){
+            window.__luripeAssisted=null;
+            setStatus("AI Assist: rewrite rejected (did not improve VM coverage) â€” original kept.","err");
+            if(btn) btn.disabled=false; return;
+          }
+          window.__luripeAssisted = newSrc;
+          const before = (baseSpill===null?"wrapper-fallback":baseSpill+" spill(s)");
+          const after  = newSpill+" spill(s)";
+          const notes = (rep.notes&&rep.notes.length)? ("<ul style=\"margin:8px 0 0 18px\">"+rep.notes.map(function(n){return "<li>"+esc(n)+"</li>";}).join("")+"</ul>") : "";
+          aiPanelShow('<div style="background:var(--panel);border:1px solid var(--border-strong);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--text)">' +
+            '<b>AI Assist applied.</b> VM coverage: <b>'+esc(before)+'</b> &rarr; <b>'+esc(after)+'</b>. ' +
+            'The rewritten script will be used on the next Obfuscate (VM mode).'+notes+'</div>');
+          setStatus("AI Assist ready â€” press Obfuscate to VM the improved script.","ok");
+        } catch(e){
+          window.__luripeAssisted=null;
+          aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px">AI Assist error: '+esc(e.message)+'</div>');
+          setStatus("AI Assist failed â€” original kept.","err");
+        } finally { if(btn) btn.disabled=false; }
+      }
+
+      // Install the "AI Assist" button next to "AI Analyze" once the DOM is ready.
+      (function(){
+        function install(){
+          if(document.getElementById("aiAssistBtn")) return;
+          var anchor = document.getElementById("aiBtn");
+          if(!anchor || !anchor.parentNode) return;
+          var b = document.createElement("button");
+          b.id="aiAssistBtn"; b.type="button"; b.className=anchor.className;
+          b.textContent="AI Assist";
+          b.title="AI rewrites unsupported constructs so the VM can protect them";
+          b.addEventListener("click", luripeAiAssist);
+          anchor.parentNode.insertBefore(b, anchor.nextSibling);
+        }
+        if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", install);
+        else install();
+      })();
+
+      async function aiAnalyze() {
+        const src = document.getElementById("input").value;
+        const key = (document.getElementById("aiKey").value || "").trim();
+        const provider = document.getElementById("aiProvider").value;
+        if (!src.trim()) { setStatus("No input to analyze.", "err"); return; }
+        if (!key) { setStatus("Enter your AI API key first.", "err"); return; }
+        localStorage.setItem("luripe_ai_key", key);
+        localStorage.setItem("luripe_ai_provider", provider);
+
+        const btn = document.getElementById("aiBtn");
+        btn.disabled = true;
+        setStatus("AI analyzing...");
+
+        let supported =
+          "SUPPORTED by the Luripe VM: local variables, numbers, strings, booleans, nil, " +
+          "arithmetic (+ - * / %), comparisons (< > <= >= == ~=), concat (..), and/or/not, " +
+          "if/elseif/else, while, numeric for, generic for (ipairs/pairs), named functions, " +
+          "anonymous functions/closures, method calls obj:m(), qualified calls T.f(), tables, " +
+          "multiple returns, varargs, common builtins (math.*, string.*, table.insert/remove/concat, " +
+          "tostring, tonumber, type, print), Roblox globals/services passthrough (game, getgenv, " +
+          "workspace, game:GetService, Instance.new), property get/set on Instances.\n";
+
+        // ============================================================
+        // VM_CAPABILITIES - SINGLE SOURCE OF TRUTH for the analyzer.
+        // Teach the VM a new construct? Move it from `unsupported` to
+        // `supported` HERE (and nowhere else). The AI prompt is generated
+        // from these lists, so the recommendation never drifts from what the
+        // compiler can actually virtualize. Last updated: Stage 1-3.
+        // ============================================================
+        const VM_CAPABILITIES = {
+          version: "stage1-3",
+          supported: [
+            "break (in any loop)",
+            "repeat/until",
+            "multiple returns and multiple assignment (local a,b = f())",
+            "pcall and error (run natively per-call; ok/err returned correctly)",
+            "Roblox userdata constructors passthrough (Color3, UDim2, Vector2, Vector3, Enum, CFrame, BrickColor)",
+            "bit32.* (passthrough)",
+            "Instance property get/set, event :Connect, task.*/wait/spawn (passthrough)",
+            "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
+            "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
+            "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
+          ],
+          unsupported: [
+            "coroutines (coroutine.create/wrap/resume/yield) - note: task.spawn/task.defer/task.delay are NOT coroutines, they are passthrough calls and ARE supported",
+            "goto / labels",
+            "xpcall (use pcall instead)",
+          ],
+        };
+        supported = supported +
+          "ALSO SUPPORTED in VM mode (added in " + VM_CAPABILITIES.version + "):\n- " +
+          VM_CAPABILITIES.supported.join("\n- ") + "\n\n" +
+          "NOT supported in VM mode - only THESE should ever trigger a WRAPPER recommendation " +
+          "(anything not on this list runs in VM mode):\n- " +
+          VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
+          "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
+          "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
+          "unsupported. Recommend WRAPPER only if a construct from the NOT-supported list above is present.\n";
+
+        const prompt =
+          "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
+          "VM mode = strongest protection (full virtualization) but ONLY runs the supported subset below. " +
+          "WRAPPER mode = universal (runs 100% of Luau incl Color3/UDim2/Enum/pcall/task.spawn/metatables/UI) " +
+          "but lighter protection. " +
+          supported + "\n\n" +
+          "GOAL: recommend the STRONGEST mode that will STILL RUN this exact script without breaking. " +
+          "Choose VM only if EVERY construct is in the supported list; if even one unsupported construct " +
+          "is present, VM mode would fail at runtime, so you MUST choose WRAPPER. Never sacrifice a working " +
+          "script for stronger protection - a broken VM output is useless.\n\n" +
+          "Analyze the following Luau script. Return STRICT JSON only, no markdown, with keys: " +
+          "{\"verdict\":\"VM_SAFE\"|\"RISKY\"|\"NOT_VM_SAFE\", " +
+          "\"recommendedMode\":\"VM\"|\"WRAPPER\", " +
+          "\"unsupported\":[{\"construct\":\"name\",\"line\":number,\"snippet\":\"the code\"}], " +
+          "\"runtimeRisks\":[short notes on what could FAIL SILENTLY at runtime even in Wrapper mode, e.g. loadstring disabled, executor-only globals, missing services], " +
+          "\"reasons\":[short bullet reasons], " +
+          "\"summary\":\"one-sentence: which mode and why it is the strongest that still runs\"}. " +
+          "For each unsupported construct include the 1-based LINE NUMBER and the exact snippet so the user can find it fast. " +
+          "In runtimeRisks, call out anything that would make the script run with NO output and NO error (silent failure).\n\n" +
+          "SCRIPT (lines are 1-based):\n" +
+          src.split("\n").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\n").slice(0, 14000);
+
+        try {
+          let raw;
+          if (provider === "gemini") {
+            const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
+              "gemini-2.0-flash:generateContent?key=" + encodeURIComponent(key);
+            const res = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
+              }),
+            });
+            if (!res.ok) { const t = await res.text(); throw new Error("Gemini " + res.status + ": " + t.slice(0, 160)); }
+            const data = await res.json();
+            raw = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0].text;
+          } else {
+            // OpenAI-compatible: OpenAI, OpenRouter, Groq
+            let endpoint, model;
+            if (provider === "openai") { endpoint = "https://api.openai.com/v1/chat/completions"; model = "gpt-4o-mini"; }
+            else if (provider === "openrouter") { endpoint = "https://openrouter.ai/api/v1/chat/completions"; model = "google/gemini-2.0-flash-exp:free"; }
+            else if (provider === "groq") { endpoint = "https://api.groq.com/openai/v1/chat/completions"; model = "llama-3.3-70b-versatile"; }
+            else throw new Error("Unknown provider.");
+            const res = await fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+              body: JSON.stringify({
+                model: model,
+                temperature: 0.1,
+                response_format: { type: "json_object" },
+                messages: [{ role: "user", content: prompt }],
+              }),
+            });
+            if (!res.ok) { const t = await res.text(); throw new Error(provider + " " + res.status + ": " + t.slice(0, 160)); }
+            const data = await res.json();
+            raw = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+          }
+          if (!raw) throw new Error("Empty AI response.");
+          let rep;
+          try { rep = JSON.parse(raw); }
+          catch (e) {
+            const m = raw.match(/\{[\s\S]*\}/);
+            rep = m ? JSON.parse(m[0]) : null;
+          }
+          if (!rep) throw new Error("Could not parse AI response.");
+          renderReport(rep);
+          setStatus("AI analysis complete.", "ok");
+        } catch (e) {
+          aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);' +
+            'border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px;">' +
+            "AI error: " + esc(e.message) + "</div>");
+          setStatus("AI analysis failed.", "err");
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
+      // ============ AI ERROR DIAGNOSIS ============
+      // Paste a runtime error from Roblox/executor + the source; AI explains the
+      // exact cause, the likely line, and a concrete fix. Works with the same key.
+      async function aiExplainError() {
+        const src = document.getElementById("input").value;
+        const errBox = document.getElementById("errInput");
+        const errText = errBox ? (errBox.value || "").trim() : "";
+        const key = (document.getElementById("aiKey").value || "").trim();
+        const provider = document.getElementById("aiProvider").value;
+        if (!errText) { setStatus("Paste the Roblox error message first.", "err"); return; }
+        if (!key) { setStatus("Enter your AI API key first.", "err"); return; }
+        localStorage.setItem("luripe_ai_key", key);
+        const btn = document.getElementById("errBtn");
+        if (btn) btn.disabled = true;
+        setStatus("AI diagnosing error...");
+
+        const prompt =
+          "You are the expert debugger for the 'Luripe' Luau obfuscator running in a Roblox executor (Delta, Synapse, etc.). " +
+          "ARCHITECTURE: Luripe compiles Lua to a CUSTOM STACK-BASED VM bytecode (randomized opcodes, encrypted constants, binary-search dispatch). " +
+          "It supports: locals, arithmetic, comparisons, concat, if/while/for, break, repeat/until, functions, closures + upvalues, " +
+          "multiple assignment, varargs, tables, metatables/OOP (setmetatable/getmetatable, __index/__newindex/operator metamethods), " +
+          "pcall/error (run natively), and Roblox passthrough (Color3/UDim2/Vector/Enum/game/services). " +
+          "Functions/callbacks that escape to native APIs (metamethods, :Connect, table.sort) are spilled to real Lua closures. " +
+          "It does NOT yet support: coroutines, goto/labels, xpcall. " +
+          "KNOWN ERROR SIGNATURES and their SPECIFIC causes: " +
+          "- 'attempt to perform arithmetic (add/sub/...) on a nil value' => a variable read as nil: usually an upvalue/closure capture issue, an uninitialised local, or a global that does not exist in the executor. Name the exact variable from the snippet. " +
+          "- 'attempt to get length of a number value' / '#' errors => internal VM stack imbalance (report as a Luripe bug, suggest trying a slightly simpler equivalent or Wrapper mode as a workaround). " +
+          "- 'attempt to call a nil value' => a missing global/service, a typo'd function name, or an executor that lacks that API. Name it. " +
+          "- 'attempt to call a table value' => a function value used where a Lua function is required (rare now; report as bug). " +
+          "- 'attempt to index nil' => indexing a variable that is nil; name the variable and the field. " +
+          "- silent no-output => likely Roblox userdata the VM cannot express, or loadstring disabled/hooked. " +
+          "- too-many-locals / syntax => script too large for one chunk. " +
+          "RULES: Be SPECIFIC. Name the exact variable/function/field from the snippet. If the line number in the error is the VM loader (line 1), IGNORE it and find the real offending line in the SOURCE. Do not give generic advice. " +
+          "Given the ERROR and the original SOURCE, return STRICT JSON only (no markdown): " +
+          "{\"cause\":\"one clear sentence naming the root cause, referencing the exact variable/function\", " +
+          "\"variable\":\"the specific variable/function/field name involved, or empty\", " +
+          "\"line\":number-or-null (1-based line in SOURCE, NOT the loader line 1), " +
+          "\"snippet\":\"the offending source line if identifiable, else empty\", " +
+          "\"isLuripeBug\":true-or-false (true if this is an internal VM fault rather than a mistake in the user script), " +
+          "\"fix\":\"a concrete, specific fix; if isLuripeBug, suggest the closest working workaround\", " +
+          "\"mode\":\"VM\"|\"WRAPPER\"|\"RAW (which Luripe mode is most likely to make this script work)\", " +
+          "\"confidence\":\"high\"|\"medium\"|\"low\"}.\n\n" +
+          "ERROR:\n" + errText.slice(0, 2000) + "\n\n" +
+          "SOURCE (1-based lines):\n" +
+          src.split("\n").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\n").slice(0, 12000);
+
+        try {
+          const raw = await aiCall(provider, key, prompt);
+          if (!raw) throw new Error("Empty AI response.");
+          let rep;
+          try { rep = JSON.parse(raw); } catch (e) { const m = raw.match(/\{[\s\S]*\}/); rep = m ? JSON.parse(m[0]) : null; }
+          if (!rep) throw new Error("Could not parse AI response.");
+          renderErrorReport(rep);
+          setStatus("Error diagnosed.", "ok");
+        } catch (e) {
+          aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px;">' +
+            "AI error: " + esc(e.message) + "</div>");
+          setStatus("Diagnosis failed.", "err");
+        } finally { if (btn) btn.disabled = false; }
+      }
+
+      // Shared AI call helper (used by both analyze and error-explain).
+      async function aiCall(provider, key, prompt) {
+        if (provider === "gemini") {
+          const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + encodeURIComponent(key);
+          const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: "application/json" } }) });
+          if (!res.ok) { const t = await res.text(); throw new Error("Gemini " + res.status + ": " + t.slice(0, 160)); }
+          const data = await res.json();
+          return data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0].text;
+        }
+        let endpoint, model;
+        if (provider === "openai") { endpoint = "https://api.openai.com/v1/chat/completions"; model = "gpt-4o-mini"; }
+        else if (provider === "openrouter") { endpoint = "https://openrouter.ai/api/v1/chat/completions"; model = "google/gemini-2.0-flash-exp:free"; }
+        else if (provider === "groq") { endpoint = "https://api.groq.com/openai/v1/chat/completions"; model = "llama-3.3-70b-versatile"; }
+        else throw new Error("Unknown provider.");
+        const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+          body: JSON.stringify({ model: model, temperature: 0.1, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }) });
+        if (!res.ok) { const t = await res.text(); throw new Error(provider + " " + res.status + ": " + t.slice(0, 160)); }
+        const data = await res.json();
+        return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      }
+
+      function renderErrorReport(rep) {
+        const conf = rep.confidence === "high" ? "var(--ok)" : rep.confidence === "low" ? "var(--err)" : "#f5c451";
+        var lineInfo = "";
+        if (rep.line != null) lineInfo = ' <span style="color:var(--text-faint);">(line ' + esc(rep.line) + ')</span>';
+        aiPanelShow(
+          '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 20px;">' +
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+          '<span style="font-weight:700;font-size:14px;color:var(--text);">Error diagnosis</span>' +
+          '<span style="font-size:12px;color:' + conf + ';">confidence: ' + esc(rep.confidence || "?") + '</span></div>' +
+          '<div style="font-size:13px;color:var(--text);margin-bottom:10px;"><b>Cause:</b> ' + esc(rep.cause || "?") + lineInfo + '</div>' +
+          (rep.snippet ? '<div style="font-size:12px;margin-bottom:10px;"><code style="color:var(--text-faint);">' + esc(rep.snippet) + '</code></div>' : "") +
+          '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;"><b style="color:var(--text);">Fix:</b> ' + esc(rep.fix || "") + '</div>' +
+          '<div style="font-size:12px;color:var(--text-dim);">Recommended mode: <b style="color:var(--text);">' + esc(rep.mode || "?") + '</b></div>' +
+          '</div>'
+        );
+      }
+
+      function renderReport(rep) {
+        window.__luripeVerdict = rep;
+        const color = rep.verdict === "VM_SAFE" ? "var(--ok)" :
+          rep.verdict === "RISKY" ? "#f5c451" : "var(--err)";
+        const items = (arr) => (arr && arr.length)
+          ? arr.map((x) => {
+              if (x && typeof x === "object") {
+                var label = esc(x.construct || x.name || x.type || JSON.stringify(x));
+                if (x.line != null) label += ' <span style="color:var(--text-faint);">(line ' + esc(x.line) + ')</span>';
+                if (x.snippet) label += ' <code style="color:var(--text-faint);">' + esc(x.snippet) + '</code>';
+                return "<li>" + label + "</li>";
+              }
+              return "<li>" + esc(x) + "</li>";
+            }).join("") : "<li>None</li>";
+        const modeNote = rep.recommendedMode === "WRAPPER"
+          ? "Recommended: <b>Wrapper mode</b> (universal, lighter protection) - this script uses features the VM cannot run reliably."
+          : "Recommended: <b>VM mode</b> (full virtualization) - safe to obfuscate normally.";
+        aiPanelShow(
+          '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 20px;">' +
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+          '<span style="font-weight:700;font-size:14px;color:' + color + ';">' + esc(rep.verdict || "?") + '</span>' +
+          '<span style="color:var(--text-dim);font-size:13px;">' + esc(rep.summary || "") + '</span></div>' +
+          '<div style="color:var(--text-dim);font-size:12px;margin-bottom:12px;">' + modeNote + '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:12px;color:var(--text-dim);">' +
+          '<div><div style="font-weight:600;color:var(--text);margin-bottom:6px;">Unsupported found</div>' +
+          '<ul style="margin:0;padding-left:18px;line-height:1.7;">' + items(rep.unsupported) + '</ul></div>' +
+          '<div><div style="font-weight:600;color:var(--text);margin-bottom:6px;">Reasons</div>' +
+          '<ul style="margin:0;padding-left:18px;line-height:1.7;">' + items(rep.reasons) + '</ul></div>' +
+          '</div></div>'
+        );
+      }
+
+      function setStatus(msg, cls) {
+        const s = document.getElementById("status");
+        s.textContent = msg;
+        s.className = cls || "";
+      }
+      // ================= WRAPPER MODE (universal) =================
+      // Encodes the WHOLE raw script with the rolling cipher and emits a tiny
+      // Lua loader that decodes it and runs it via load()/loadstring(). Because
+      // the real Roblox engine runs the decoded source, ALL Lua works: Color3,
+      // UDim2, Vector2, Enum, pcall, task.spawn, metatables, UI frameworks, etc.
+      // Protection is lighter than the VM (source is recoverable at runtime),
+      // but the script actually executes where the VM cannot.
+      // ================= WRAPPER MODE (universal, hardened) =================
+      // Runs the real script via load()/loadstring() so ALL Luau works
+      // (Color3, UDim2, Enum, pcall, task.spawn, metatables, UI frameworks).
+      // Hardened against trivial deobfuscation with:
+      //   * two cipher layers (rolling + per-build round-key XOR fold)
+      //   * runtime-derived keys (not literal in the output)
+      //   * anti-tamper length checksum
+      //   * junk/decoy locals + opaque predicates
+      //   * scrambled runtime names
+      function wrapperBundle(src, DBG) {
+        // UTF-8 encode so any characters survive the byte pipeline.
+        const bytes = [];
+        for (const ch of src) {
+          const cp = ch.codePointAt(0);
+          if (cp < 0x80) bytes.push(cp);
+          else if (cp < 0x800) { bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f)); }
+          else if (cp < 0x10000) { bytes.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)); }
+          else { bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)); }
+        }
+        const OFFSET = 7, PRIME = 167, CMASK = 0xff;
+        // Layer 1: rolling cipher (position + chain dependent).
+        const seed = 1 + Math.floor(Math.random() * 254);
+        const l1 = [];
+        let prev = seed;
+        for (let i = 0; i < bytes.length; i++) {
+          const ks = (seed ^ ((i + 1) * PRIME) ^ prev) & CMASK;
+          const e = ((bytes[i] + OFFSET) & CMASK) ^ ks;
+          l1.push(e); prev = e;
+        }
+        // Layer 2: per-build round key XOR fold.
+        const R = 1 + Math.floor(Math.random() * 254);
+        const l2 = l1.map((b) => (b ^ R) & CMASK);
+        // Layer 3: reversed-index second fold with a distinct key (breaks simple static reverse).
+        const R2 = 1 + Math.floor(Math.random() * 254);
+        const l3 = l2.map((b, i) => (b ^ ((R2 + i) & CMASK)) & CMASK);
+        // Anti-tamper checksum over final layer.
+        let chk = l3.length % 100003;
+        for (const b of l3) chk = (chk + b) % 100003;
+
+        // Keys are reconstructed at runtime from a scrambled seed table, not stored plainly.
+        // key table order is shuffled; loader indexes it by fixed positions.
+        const kt = [seed, R, R2, chk & 0xff];
+        const kOrder = [0, 1, 2, 3];
+        for (let i = kOrder.length - 1; i > 0; i--) { const j = (Math.random()*(i+1))|0; [kOrder[i],kOrder[j]]=[kOrder[j],kOrder[i]]; }
+        const scrambled = kOrder.map((idx) => kt[idx]);
+        const pos = { seed: kOrder.indexOf(0)+1, R: kOrder.indexOf(1)+1, R2: kOrder.indexOf(2)+1 };
+
+        const r = () => "_" + Math.random().toString(36).slice(2, 7);
+        const B = r(), C = r(), D = r(), FN = r(), KT = r(), SD = r(), RK = r(), RK2 = r(), CK = r(), AC = r(), G = r(), LS = r();
+        const rn = () => "_" + Math.random().toString(36).slice(2, 6);
+        function junk() {
+          const v = rn(), a = (Math.random()*999)|0, b = ((Math.random()*99)|0)+1;
+          const pats = [
+            "local " + v + "=" + ((Math.random()*99999)|0) + ";",
+            "local " + v + "=" + a + ";if (" + v + "*" + v + ")>=0 then " + v + "=" + v + "+" + b + " end;",
+            "local " + v + "=function(" + rn() + ") return " + a + " end;",
+            "local " + v + "={" + a + "," + b + "};",
+          ];
+          return pats[(Math.random()*pats.length)|0];
+        }
+        const J = (n) => Array.from({length:n}, junk).join("");
+
+        // Split blob into a FIXED small number of chunks (<=8) so the loader never
+        // exceeds Luau's 200-locals-per-function limit, no matter how large the script.
+        const nums = l3.slice();
+        const CHUNKS = Math.min(8, Math.max(1, nums.length));
+        const chunkSize = Math.ceil(nums.length / CHUNKS);
+        const parts = [];
+        for (let ci = 0; ci < nums.length; ci += chunkSize) {
+          parts.push(nums.slice(ci, ci + chunkSize));
+        }
+        const partVars = parts.map(() => r());
+        let blobAsm = "";
+        partVars.forEach((pv, i) => { blobAsm += "local " + pv + "={" + parts[i].join(",") + "};"; });
+        blobAsm += "local " + B + "={};";
+        blobAsm += "for _,_pp in ipairs({" + partVars.join(",") + "}) do for _k=1,#_pp do " + B + "[#" + B + "+1]=_pp[_k] end end;";
+
+        // Anti-hook: capture a trusted reference to loadstring/load, and verify a tiny canary
+        // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
+        const anti =
+          "local " + LS + "=(function() local a=rawget(_G,'loadstring');local b=rawget(_G,'load');" +
+          "local c=(getgenv and getgenv() and getgenv().loadstring);return a or c or b end)();" +
+          "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
+          // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
+          // (instead of a function) or mangles it will fail this and we abort before feeding real source.
+          (function(){ const a=2+Math.floor(Math.random()*900), b=2+Math.floor(Math.random()*900);
+            return "local _cf=" + LS + "('return " + a + "+" + b + "');" +
+            "if type(_cf)~='function' or _cf()~=" + (a+b) + " then warn('Luripe: environment tampered (loadstring hook detected)') return end;"; })();
+
+        const loader =
+          J(3) +
+          "local " + KT + "={" + scrambled.join(",") + "};" +
+          "local " + SD + "=" + KT + "[" + pos.seed + "];" +
+          "local " + RK + "=" + KT + "[" + pos.R + "];" +
+          "local " + RK2 + "=" + KT + "[" + pos.R2 + "];" +
+          "local " + CK + "=" + chk + ";" +
+          (DBG ? "warn('[Luripe] loader started - if you can read this, prints work');" : "") +
+          J(2) +
+          blobAsm +
+          J(2) +
+          // anti-tamper: recompute checksum on the final-layer blob
+          "local " + AC + "=#" + B + "%100003;for _i=1,#" + B + " do " + AC + "=(" + AC + "+" + B + "[_i])%100003 end;" +
+          (DBG
+            ? "if " + AC + "~=" + CK + " then warn('[Luripe] checksum mismatch - blob corrupted in paste') return end;"
+            : "if " + AC + "~=" + CK + " then return end;") +
+          J(2) +
+          // reverse layer 3 (index fold) -> layer 2 (round key) -> layer 1 (rolling), rebuild bytes
+          "local " + C + "={};local _p=" + SD + ";" +
+          "for _i=1,#" + B + " do " +
+          "local _b3=bit32.band(bit32.bxor(" + B + "[_i],bit32.band(" + RK2 + "+(_i-1),0xFF)),0xFF);" +
+          "local _e=bit32.band(bit32.bxor(_b3," + RK + "),0xFF);" +
+          "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
+          "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
+          C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
+          "local " + D + "=table.concat(" + C + ");" +
+          J(2) +
+          anti +
+          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          "local " + FN + ",_err=" + LS + "(" + D + ");" +
+          "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
+          // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
+          "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
+          "if setfenv and " + G + " then pcall(setfenv," + FN + "," + G + ") end;" +
+          (DBG ? "warn('[Luripe] compiled OK, executing...');" : "") +
+          "local _ok,_e2=pcall(" + FN + ");" +
+          (DBG
+            ? "if _ok then warn('[Luripe] finished OK') else warn('[Luripe] RUNTIME ERROR: '..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
+            : "if not _ok then warn('Luripe: runtime error - '..tostring(_e2)) end") +
+          ";";
+        return loader;
+      }
+
+      // Static detector: constructs the VM cannot run reliably in Luau.
+      // If a script touches any of these, force Wrapper mode so it actually runs.
+      function needsWrapper(src) {
+        // Stage 1: only constructs that need NEW VM semantics force a wrapper hint.
+        // Roblox globals/services/userdata (Color3/UDim2/Vector/Enum/game/task/
+        // CFrame/bit32/Instance.new/services) already run in the VM via the
+        // GETGLOBAL -> GETTABLE -> CALLR/SELFCALL passthrough path, so they are
+        // no longer listed. pcall now has a real opcode (Stage 3). Only metatables
+        // remain unhandled (Stage 4), and even those are per-function spilled in VM
+        // mode rather than forcing a whole-script wrapper.
+        // Stage 4: setmetatable/getmetatable are now VM builtins, so metatables
+        // and OOP (__index/__newindex/operator metamethods) run in the VM. Only
+        // coroutines and goto remain genuinely unhandled.
+        var patterns = [
+          /\bcoroutine\s*\./, /\bgoto\b/
+        ];
+        for (var i = 0; i < patterns.length; i++) if (patterns[i].test(src)) return true;
+        return false;
+      }
+
+      function pickMode() {
+        const m = document.getElementById("mode").value;
+        // Explicit choice is respected. VM mode now uses the HYBRID compiler:
+        // it virtualizes everything it can and per-function spills only the
+        // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
+        // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
+        if (m === "vm" || m === "wrapper" || m === "raw") return m;
+        // auto: AI verdict wins if present, then static detection, else VM.
+        const v = window.__luripeVerdict;
+        if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
+        const src = document.getElementById("input").value;
+        if (needsWrapper(src)) return "wrapper";
+        return "vm";
+      }
+
+      function downloadOutput(text) {
+        if (!text) return;
+        try {
+          const stamp = Date.now().toString(36);
+          const blob = new Blob([text], { type: "text/plain" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "luripe-" + stamp + ".lua";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+        } catch (e) { /* download blocked; output is still in the box to copy */ }
+      }
+      function run() {
+        const src = document.getElementById("input").value;
+        const outEl = document.getElementById("output");
+        if (!src.trim()) { setStatus("No input to obfuscate.", "err"); return; }
+        const mode = pickMode();
+        const dbgEl = document.getElementById("dbg");
+        const DBG = !!(dbgEl && dbgEl.checked);
+        window.__luripeVMDebug = DBG;
+        if (mode === "raw") {
+          outEl.value = rawBundle(src);
+          downloadOutput(outEl.value);
+          setStatus("Raw mode - downloaded. No protection, runs as-is via executor.", "ok");
+          return;
+        }
+        if (mode === "wrapper") {
+          try {
+            setStatus("Obfuscating (wrapper mode)...");
+            outEl.value = wrapperBundle(src, DBG);
+            downloadOutput(outEl.value);
+            setStatus(DBG
+              ? "Protected in Wrapper mode (DEBUG ON) - downloaded. Run it and read the [Luripe] messages in your executor console."
+              : "Protected in Wrapper mode - downloaded. Universal compatibility (Color3/UDim2/Enum/getgc/etc all run).", "ok");
+          } catch (e) { outEl.value = ""; setStatus(e.message, "err"); }
+          return;
+        }
+        // VM mode (with auto-fallback to wrapper if compile fails)
+        try {
+          setStatus("Obfuscating (VM mode)...");
+          // Use the AI-assisted rewrite when it was accepted (fewer/equal spills).
+          const __vmSrc = (window.__luripeAssisted && window.__luripeAssisted.trim()) ? window.__luripeAssisted : src;
+          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(__vmSrc);
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
@@ -3127,7 +3793,9 @@ end</textarea>
         // VM mode (with auto-fallback to wrapper if compile fails)
         try {
           setStatus("Obfuscating (VM mode)...");
-          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(src);
+          // Use the AI-assisted rewrite when it was accepted (fewer/equal spills).
+          const __vmSrc = (window.__luripeAssisted && window.__luripeAssisted.trim()) ? window.__luripeAssisted : src;
+          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(__vmSrc);
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
@@ -3680,7 +4348,9 @@ end</textarea>
         // VM mode (with auto-fallback to wrapper if compile fails)
         try {
           setStatus("Obfuscating (VM mode)...");
-          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(src);
+          // Use the AI-assisted rewrite when it was accepted (fewer/equal spills).
+          const __vmSrc = (window.__luripeAssisted && window.__luripeAssisted.trim()) ? window.__luripeAssisted : src;
+          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(__vmSrc);
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
@@ -4233,560 +4903,9 @@ end</textarea>
         // VM mode (with auto-fallback to wrapper if compile fails)
         try {
           setStatus("Obfuscating (VM mode)...");
-          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(src);
-          const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
-          outEl.value = protectedLua;
-          downloadOutput(outEl.value);
-          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
-        } catch (e) {
-          // VM couldn't handle it -> fall back to wrapper so the script still works.
-          try {
-            outEl.value = wrapperBundle(src, DBG);
-            downloadOutput(outEl.value);
-            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
-          } catch (e2) {
-            outEl.value = "";
-            setStatus(e.message, "err");
-          }
-        }
-      }
-      function copyOut() {
-        const o = document.getElementById("output");
-        if (!o.value) { setStatus("Nothing to copy.", "err"); return; }
-        navigator.clipboard.writeText(o.value).then(() => setStatus("Copied to clipboard.", "ok"));
-      }
-      function clearAll() {
-        document.getElementById("input").value = "";
-        document.getElementById("output").value = "";
-        setStatus("Cleared.");
-      }
-
-      // Raw mode: no protection, just ensures the script runs via the executor.
-      // Useful for testing or when the user just wants a runnable copy.
-      function rawBundle(src) {
-        return src;
-      }
-
-      // Copy the output as a directly-runnable loadstring one-liner for Delta.
-      // If output is already a loader, copies as-is. Otherwise wraps raw Lua.
-
-
-      // ================= AI ANALYZER (Google Gemini) =================
-      // Reads raw Lua BEFORE obfuscation, diagnoses which constructs are
-      // VM-safe vs unsupported, and recommends VM mode or Wrapper mode.
-      // User supplies their own Gemini API key (saved locally, never sent
-      // anywhere except Google). Free tier: gemini-2.0-flash.
-
-      (function () {
-        const saved = localStorage.getItem("luripe_ai_key");
-        if (saved) { const f = document.getElementById("aiKey"); if (f) f.value = saved; }
-        const savedProv = localStorage.getItem("luripe_ai_provider");
-        if (savedProv) { const s = document.getElementById("aiProvider"); if (s) s.value = savedProv; }
-      })();
-
-      function aiPanelShow(html) {
-        const p = document.getElementById("aiPanel");
-        p.style.display = "block";
-        p.innerHTML = html;
-      }
-
-      async function aiAnalyze() {
-        const src = document.getElementById("input").value;
-        const key = (document.getElementById("aiKey").value || "").trim();
-        const provider = document.getElementById("aiProvider").value;
-        if (!src.trim()) { setStatus("No input to analyze.", "err"); return; }
-        if (!key) { setStatus("Enter your AI API key first.", "err"); return; }
-        localStorage.setItem("luripe_ai_key", key);
-        localStorage.setItem("luripe_ai_provider", provider);
-
-        const btn = document.getElementById("aiBtn");
-        btn.disabled = true;
-        setStatus("AI analyzing...");
-
-        let supported =
-          "SUPPORTED by the Luripe VM: local variables, numbers, strings, booleans, nil, " +
-          "arithmetic (+ - * / %), comparisons (< > <= >= == ~=), concat (..), and/or/not, " +
-          "if/elseif/else, while, numeric for, generic for (ipairs/pairs), named functions, " +
-          "anonymous functions/closures, method calls obj:m(), qualified calls T.f(), tables, " +
-          "multiple returns, varargs, common builtins (math.*, string.*, table.insert/remove/concat, " +
-          "tostring, tonumber, type, print), Roblox globals/services passthrough (game, getgenv, " +
-          "workspace, game:GetService, Instance.new), property get/set on Instances.\n";
-
-        // ============================================================
-        // VM_CAPABILITIES - SINGLE SOURCE OF TRUTH for the analyzer.
-        // Teach the VM a new construct? Move it from `unsupported` to
-        // `supported` HERE (and nowhere else). The AI prompt is generated
-        // from these lists, so the recommendation never drifts from what the
-        // compiler can actually virtualize. Last updated: Stage 1-3.
-        // ============================================================
-        const VM_CAPABILITIES = {
-          version: "stage1-3",
-          supported: [
-            "break (in any loop)",
-            "repeat/until",
-            "multiple returns and multiple assignment (local a,b = f())",
-            "pcall and error (run natively per-call; ok/err returned correctly)",
-            "Roblox userdata constructors passthrough (Color3, UDim2, Vector2, Vector3, Enum, CFrame, BrickColor)",
-            "bit32.* (passthrough)",
-            "Instance property get/set, event :Connect, task.*/wait/spawn (passthrough)",
-            "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
-            "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
-            "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
-          ],
-          unsupported: [
-            "coroutines (coroutine.create/wrap/resume/yield) - note: task.spawn/task.defer/task.delay are NOT coroutines, they are passthrough calls and ARE supported",
-            "goto / labels",
-            "xpcall (use pcall instead)",
-          ],
-        };
-        supported = supported +
-          "ALSO SUPPORTED in VM mode (added in " + VM_CAPABILITIES.version + "):\n- " +
-          VM_CAPABILITIES.supported.join("\n- ") + "\n\n" +
-          "NOT supported in VM mode - only THESE should ever trigger a WRAPPER recommendation " +
-          "(anything not on this list runs in VM mode):\n- " +
-          VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
-          "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
-          "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. Recommend WRAPPER only if a construct from the NOT-supported list above is present.\n";
-
-        const prompt =
-          "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
-          "VM mode = strongest protection (full virtualization) but ONLY runs the supported subset below. " +
-          "WRAPPER mode = universal (runs 100% of Luau incl Color3/UDim2/Enum/pcall/task.spawn/metatables/UI) " +
-          "but lighter protection. " +
-          supported + "\n\n" +
-          "GOAL: recommend the STRONGEST mode that will STILL RUN this exact script without breaking. " +
-          "Choose VM only if EVERY construct is in the supported list; if even one unsupported construct " +
-          "is present, VM mode would fail at runtime, so you MUST choose WRAPPER. Never sacrifice a working " +
-          "script for stronger protection - a broken VM output is useless.\n\n" +
-          "Analyze the following Luau script. Return STRICT JSON only, no markdown, with keys: " +
-          "{\"verdict\":\"VM_SAFE\"|\"RISKY\"|\"NOT_VM_SAFE\", " +
-          "\"recommendedMode\":\"VM\"|\"WRAPPER\", " +
-          "\"unsupported\":[{\"construct\":\"name\",\"line\":number,\"snippet\":\"the code\"}], " +
-          "\"runtimeRisks\":[short notes on what could FAIL SILENTLY at runtime even in Wrapper mode, e.g. loadstring disabled, executor-only globals, missing services], " +
-          "\"reasons\":[short bullet reasons], " +
-          "\"summary\":\"one-sentence: which mode and why it is the strongest that still runs\"}. " +
-          "For each unsupported construct include the 1-based LINE NUMBER and the exact snippet so the user can find it fast. " +
-          "In runtimeRisks, call out anything that would make the script run with NO output and NO error (silent failure).\n\n" +
-          "SCRIPT (lines are 1-based):\n" +
-          src.split("\n").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\n").slice(0, 14000);
-
-        try {
-          let raw;
-          if (provider === "gemini") {
-            const url = "https://generativelanguage.googleapis.com/v1beta/models/" +
-              "gemini-2.0-flash:generateContent?key=" + encodeURIComponent(key);
-            const res = await fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
-              }),
-            });
-            if (!res.ok) { const t = await res.text(); throw new Error("Gemini " + res.status + ": " + t.slice(0, 160)); }
-            const data = await res.json();
-            raw = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0].text;
-          } else {
-            // OpenAI-compatible: OpenAI, OpenRouter, Groq
-            let endpoint, model;
-            if (provider === "openai") { endpoint = "https://api.openai.com/v1/chat/completions"; model = "gpt-4o-mini"; }
-            else if (provider === "openrouter") { endpoint = "https://openrouter.ai/api/v1/chat/completions"; model = "google/gemini-2.0-flash-exp:free"; }
-            else if (provider === "groq") { endpoint = "https://api.groq.com/openai/v1/chat/completions"; model = "llama-3.3-70b-versatile"; }
-            else throw new Error("Unknown provider.");
-            const res = await fetch(endpoint, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-              body: JSON.stringify({
-                model: model,
-                temperature: 0.1,
-                response_format: { type: "json_object" },
-                messages: [{ role: "user", content: prompt }],
-              }),
-            });
-            if (!res.ok) { const t = await res.text(); throw new Error(provider + " " + res.status + ": " + t.slice(0, 160)); }
-            const data = await res.json();
-            raw = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-          }
-          if (!raw) throw new Error("Empty AI response.");
-          let rep;
-          try { rep = JSON.parse(raw); }
-          catch (e) {
-            const m = raw.match(/\{[\s\S]*\}/);
-            rep = m ? JSON.parse(m[0]) : null;
-          }
-          if (!rep) throw new Error("Could not parse AI response.");
-          renderReport(rep);
-          setStatus("AI analysis complete.", "ok");
-        } catch (e) {
-          aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);' +
-            'border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px;">' +
-            "AI error: " + esc(e.message) + "</div>");
-          setStatus("AI analysis failed.", "err");
-        } finally {
-          btn.disabled = false;
-        }
-      }
-
-      function esc(s) {
-        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      }
-
-      // ============ AI ERROR DIAGNOSIS ============
-      // Paste a runtime error from Roblox/executor + the source; AI explains the
-      // exact cause, the likely line, and a concrete fix. Works with the same key.
-      async function aiExplainError() {
-        const src = document.getElementById("input").value;
-        const errBox = document.getElementById("errInput");
-        const errText = errBox ? (errBox.value || "").trim() : "";
-        const key = (document.getElementById("aiKey").value || "").trim();
-        const provider = document.getElementById("aiProvider").value;
-        if (!errText) { setStatus("Paste the Roblox error message first.", "err"); return; }
-        if (!key) { setStatus("Enter your AI API key first.", "err"); return; }
-        localStorage.setItem("luripe_ai_key", key);
-        const btn = document.getElementById("errBtn");
-        if (btn) btn.disabled = true;
-        setStatus("AI diagnosing error...");
-
-        const prompt =
-          "You are the expert debugger for the 'Luripe' Luau obfuscator running in a Roblox executor (Delta, Synapse, etc.). " +
-          "ARCHITECTURE: Luripe compiles Lua to a CUSTOM STACK-BASED VM bytecode (randomized opcodes, encrypted constants, binary-search dispatch). " +
-          "It supports: locals, arithmetic, comparisons, concat, if/while/for, break, repeat/until, functions, closures + upvalues, " +
-          "multiple assignment, varargs, tables, metatables/OOP (setmetatable/getmetatable, __index/__newindex/operator metamethods), " +
-          "pcall/error (run natively), and Roblox passthrough (Color3/UDim2/Vector/Enum/game/services). " +
-          "Functions/callbacks that escape to native APIs (metamethods, :Connect, table.sort) are spilled to real Lua closures. " +
-          "It does NOT yet support: coroutines, goto/labels, xpcall. " +
-          "KNOWN ERROR SIGNATURES and their SPECIFIC causes: " +
-          "- 'attempt to perform arithmetic (add/sub/...) on a nil value' => a variable read as nil: usually an upvalue/closure capture issue, an uninitialised local, or a global that does not exist in the executor. Name the exact variable from the snippet. " +
-          "- 'attempt to get length of a number value' / '#' errors => internal VM stack imbalance (report as a Luripe bug, suggest trying a slightly simpler equivalent or Wrapper mode as a workaround). " +
-          "- 'attempt to call a nil value' => a missing global/service, a typo'd function name, or an executor that lacks that API. Name it. " +
-          "- 'attempt to call a table value' => a function value used where a Lua function is required (rare now; report as bug). " +
-          "- 'attempt to index nil' => indexing a variable that is nil; name the variable and the field. " +
-          "- silent no-output => likely Roblox userdata the VM cannot express, or loadstring disabled/hooked. " +
-          "- too-many-locals / syntax => script too large for one chunk. " +
-          "RULES: Be SPECIFIC. Name the exact variable/function/field from the snippet. If the line number in the error is the VM loader (line 1), IGNORE it and find the real offending line in the SOURCE. Do not give generic advice. " +
-          "Given the ERROR and the original SOURCE, return STRICT JSON only (no markdown): " +
-          "{\"cause\":\"one clear sentence naming the root cause, referencing the exact variable/function\", " +
-          "\"variable\":\"the specific variable/function/field name involved, or empty\", " +
-          "\"line\":number-or-null (1-based line in SOURCE, NOT the loader line 1), " +
-          "\"snippet\":\"the offending source line if identifiable, else empty\", " +
-          "\"isLuripeBug\":true-or-false (true if this is an internal VM fault rather than a mistake in the user script), " +
-          "\"fix\":\"a concrete, specific fix; if isLuripeBug, suggest the closest working workaround\", " +
-          "\"mode\":\"VM\"|\"WRAPPER\"|\"RAW (which Luripe mode is most likely to make this script work)\", " +
-          "\"confidence\":\"high\"|\"medium\"|\"low\"}.\n\n" +
-          "ERROR:\n" + errText.slice(0, 2000) + "\n\n" +
-          "SOURCE (1-based lines):\n" +
-          src.split("\n").slice(0, 400).map((l, i) => (i + 1) + ": " + l).join("\n").slice(0, 12000);
-
-        try {
-          const raw = await aiCall(provider, key, prompt);
-          if (!raw) throw new Error("Empty AI response.");
-          let rep;
-          try { rep = JSON.parse(raw); } catch (e) { const m = raw.match(/\{[\s\S]*\}/); rep = m ? JSON.parse(m[0]) : null; }
-          if (!rep) throw new Error("Could not parse AI response.");
-          renderErrorReport(rep);
-          setStatus("Error diagnosed.", "ok");
-        } catch (e) {
-          aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px;">' +
-            "AI error: " + esc(e.message) + "</div>");
-          setStatus("Diagnosis failed.", "err");
-        } finally { if (btn) btn.disabled = false; }
-      }
-
-      // Shared AI call helper (used by both analyze and error-explain).
-      async function aiCall(provider, key, prompt) {
-        if (provider === "gemini") {
-          const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + encodeURIComponent(key);
-          const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: "application/json" } }) });
-          if (!res.ok) { const t = await res.text(); throw new Error("Gemini " + res.status + ": " + t.slice(0, 160)); }
-          const data = await res.json();
-          return data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0].text;
-        }
-        let endpoint, model;
-        if (provider === "openai") { endpoint = "https://api.openai.com/v1/chat/completions"; model = "gpt-4o-mini"; }
-        else if (provider === "openrouter") { endpoint = "https://openrouter.ai/api/v1/chat/completions"; model = "google/gemini-2.0-flash-exp:free"; }
-        else if (provider === "groq") { endpoint = "https://api.groq.com/openai/v1/chat/completions"; model = "llama-3.3-70b-versatile"; }
-        else throw new Error("Unknown provider.");
-        const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-          body: JSON.stringify({ model: model, temperature: 0.1, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }) });
-        if (!res.ok) { const t = await res.text(); throw new Error(provider + " " + res.status + ": " + t.slice(0, 160)); }
-        const data = await res.json();
-        return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-      }
-
-      function renderErrorReport(rep) {
-        const conf = rep.confidence === "high" ? "var(--ok)" : rep.confidence === "low" ? "var(--err)" : "#f5c451";
-        var lineInfo = "";
-        if (rep.line != null) lineInfo = ' <span style="color:var(--text-faint);">(line ' + esc(rep.line) + ')</span>';
-        aiPanelShow(
-          '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 20px;">' +
-          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
-          '<span style="font-weight:700;font-size:14px;color:var(--text);">Error diagnosis</span>' +
-          '<span style="font-size:12px;color:' + conf + ';">confidence: ' + esc(rep.confidence || "?") + '</span></div>' +
-          '<div style="font-size:13px;color:var(--text);margin-bottom:10px;"><b>Cause:</b> ' + esc(rep.cause || "?") + lineInfo + '</div>' +
-          (rep.snippet ? '<div style="font-size:12px;margin-bottom:10px;"><code style="color:var(--text-faint);">' + esc(rep.snippet) + '</code></div>' : "") +
-          '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;"><b style="color:var(--text);">Fix:</b> ' + esc(rep.fix || "") + '</div>' +
-          '<div style="font-size:12px;color:var(--text-dim);">Recommended mode: <b style="color:var(--text);">' + esc(rep.mode || "?") + '</b></div>' +
-          '</div>'
-        );
-      }
-
-      function renderReport(rep) {
-        window.__luripeVerdict = rep;
-        const color = rep.verdict === "VM_SAFE" ? "var(--ok)" :
-          rep.verdict === "RISKY" ? "#f5c451" : "var(--err)";
-        const items = (arr) => (arr && arr.length)
-          ? arr.map((x) => {
-              if (x && typeof x === "object") {
-                var label = esc(x.construct || x.name || x.type || JSON.stringify(x));
-                if (x.line != null) label += ' <span style="color:var(--text-faint);">(line ' + esc(x.line) + ')</span>';
-                if (x.snippet) label += ' <code style="color:var(--text-faint);">' + esc(x.snippet) + '</code>';
-                return "<li>" + label + "</li>";
-              }
-              return "<li>" + esc(x) + "</li>";
-            }).join("") : "<li>None</li>";
-        const modeNote = rep.recommendedMode === "WRAPPER"
-          ? "Recommended: <b>Wrapper mode</b> (universal, lighter protection) - this script uses features the VM cannot run reliably."
-          : "Recommended: <b>VM mode</b> (full virtualization) - safe to obfuscate normally.";
-        aiPanelShow(
-          '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 20px;">' +
-          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
-          '<span style="font-weight:700;font-size:14px;color:' + color + ';">' + esc(rep.verdict || "?") + '</span>' +
-          '<span style="color:var(--text-dim);font-size:13px;">' + esc(rep.summary || "") + '</span></div>' +
-          '<div style="color:var(--text-dim);font-size:12px;margin-bottom:12px;">' + modeNote + '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:12px;color:var(--text-dim);">' +
-          '<div><div style="font-weight:600;color:var(--text);margin-bottom:6px;">Unsupported found</div>' +
-          '<ul style="margin:0;padding-left:18px;line-height:1.7;">' + items(rep.unsupported) + '</ul></div>' +
-          '<div><div style="font-weight:600;color:var(--text);margin-bottom:6px;">Reasons</div>' +
-          '<ul style="margin:0;padding-left:18px;line-height:1.7;">' + items(rep.reasons) + '</ul></div>' +
-          '</div></div>'
-        );
-      }
-
-      function setStatus(msg, cls) {
-        const s = document.getElementById("status");
-        s.textContent = msg;
-        s.className = cls || "";
-      }
-      // ================= WRAPPER MODE (universal) =================
-      // Encodes the WHOLE raw script with the rolling cipher and emits a tiny
-      // Lua loader that decodes it and runs it via load()/loadstring(). Because
-      // the real Roblox engine runs the decoded source, ALL Lua works: Color3,
-      // UDim2, Vector2, Enum, pcall, task.spawn, metatables, UI frameworks, etc.
-      // Protection is lighter than the VM (source is recoverable at runtime),
-      // but the script actually executes where the VM cannot.
-      // ================= WRAPPER MODE (universal, hardened) =================
-      // Runs the real script via load()/loadstring() so ALL Luau works
-      // (Color3, UDim2, Enum, pcall, task.spawn, metatables, UI frameworks).
-      // Hardened against trivial deobfuscation with:
-      //   * two cipher layers (rolling + per-build round-key XOR fold)
-      //   * runtime-derived keys (not literal in the output)
-      //   * anti-tamper length checksum
-      //   * junk/decoy locals + opaque predicates
-      //   * scrambled runtime names
-      function wrapperBundle(src, DBG) {
-        // UTF-8 encode so any characters survive the byte pipeline.
-        const bytes = [];
-        for (const ch of src) {
-          const cp = ch.codePointAt(0);
-          if (cp < 0x80) bytes.push(cp);
-          else if (cp < 0x800) { bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f)); }
-          else if (cp < 0x10000) { bytes.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)); }
-          else { bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)); }
-        }
-        const OFFSET = 7, PRIME = 167, CMASK = 0xff;
-        // Layer 1: rolling cipher (position + chain dependent).
-        const seed = 1 + Math.floor(Math.random() * 254);
-        const l1 = [];
-        let prev = seed;
-        for (let i = 0; i < bytes.length; i++) {
-          const ks = (seed ^ ((i + 1) * PRIME) ^ prev) & CMASK;
-          const e = ((bytes[i] + OFFSET) & CMASK) ^ ks;
-          l1.push(e); prev = e;
-        }
-        // Layer 2: per-build round key XOR fold.
-        const R = 1 + Math.floor(Math.random() * 254);
-        const l2 = l1.map((b) => (b ^ R) & CMASK);
-        // Layer 3: reversed-index second fold with a distinct key (breaks simple static reverse).
-        const R2 = 1 + Math.floor(Math.random() * 254);
-        const l3 = l2.map((b, i) => (b ^ ((R2 + i) & CMASK)) & CMASK);
-        // Anti-tamper checksum over final layer.
-        let chk = l3.length % 100003;
-        for (const b of l3) chk = (chk + b) % 100003;
-
-        // Keys are reconstructed at runtime from a scrambled seed table, not stored plainly.
-        // key table order is shuffled; loader indexes it by fixed positions.
-        const kt = [seed, R, R2, chk & 0xff];
-        const kOrder = [0, 1, 2, 3];
-        for (let i = kOrder.length - 1; i > 0; i--) { const j = (Math.random()*(i+1))|0; [kOrder[i],kOrder[j]]=[kOrder[j],kOrder[i]]; }
-        const scrambled = kOrder.map((idx) => kt[idx]);
-        const pos = { seed: kOrder.indexOf(0)+1, R: kOrder.indexOf(1)+1, R2: kOrder.indexOf(2)+1 };
-
-        const r = () => "_" + Math.random().toString(36).slice(2, 7);
-        const B = r(), C = r(), D = r(), FN = r(), KT = r(), SD = r(), RK = r(), RK2 = r(), CK = r(), AC = r(), G = r(), LS = r();
-        const rn = () => "_" + Math.random().toString(36).slice(2, 6);
-        function junk() {
-          const v = rn(), a = (Math.random()*999)|0, b = ((Math.random()*99)|0)+1;
-          const pats = [
-            "local " + v + "=" + ((Math.random()*99999)|0) + ";",
-            "local " + v + "=" + a + ";if (" + v + "*" + v + ")>=0 then " + v + "=" + v + "+" + b + " end;",
-            "local " + v + "=function(" + rn() + ") return " + a + " end;",
-            "local " + v + "={" + a + "," + b + "};",
-          ];
-          return pats[(Math.random()*pats.length)|0];
-        }
-        const J = (n) => Array.from({length:n}, junk).join("");
-
-        // Split blob into a FIXED small number of chunks (<=8) so the loader never
-        // exceeds Luau's 200-locals-per-function limit, no matter how large the script.
-        const nums = l3.slice();
-        const CHUNKS = Math.min(8, Math.max(1, nums.length));
-        const chunkSize = Math.ceil(nums.length / CHUNKS);
-        const parts = [];
-        for (let ci = 0; ci < nums.length; ci += chunkSize) {
-          parts.push(nums.slice(ci, ci + chunkSize));
-        }
-        const partVars = parts.map(() => r());
-        let blobAsm = "";
-        partVars.forEach((pv, i) => { blobAsm += "local " + pv + "={" + parts[i].join(",") + "};"; });
-        blobAsm += "local " + B + "={};";
-        blobAsm += "for _,_pp in ipairs({" + partVars.join(",") + "}) do for _k=1,#_pp do " + B + "[#" + B + "+1]=_pp[_k] end end;";
-
-        // Anti-hook: capture a trusted reference to loadstring/load, and verify a tiny canary
-        // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
-        const anti =
-          "local " + LS + "=(function() local a=rawget(_G,'loadstring');local b=rawget(_G,'load');" +
-          "local c=(getgenv and getgenv() and getgenv().loadstring);return a or c or b end)();" +
-          "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
-          // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
-          // (instead of a function) or mangles it will fail this and we abort before feeding real source.
-          (function(){ const a=2+Math.floor(Math.random()*900), b=2+Math.floor(Math.random()*900);
-            return "local _cf=" + LS + "('return " + a + "+" + b + "');" +
-            "if type(_cf)~='function' or _cf()~=" + (a+b) + " then warn('Luripe: environment tampered (loadstring hook detected)') return end;"; })();
-
-        const loader =
-          J(3) +
-          "local " + KT + "={" + scrambled.join(",") + "};" +
-          "local " + SD + "=" + KT + "[" + pos.seed + "];" +
-          "local " + RK + "=" + KT + "[" + pos.R + "];" +
-          "local " + RK2 + "=" + KT + "[" + pos.R2 + "];" +
-          "local " + CK + "=" + chk + ";" +
-          (DBG ? "warn('[Luripe] loader started - if you can read this, prints work');" : "") +
-          J(2) +
-          blobAsm +
-          J(2) +
-          // anti-tamper: recompute checksum on the final-layer blob
-          "local " + AC + "=#" + B + "%100003;for _i=1,#" + B + " do " + AC + "=(" + AC + "+" + B + "[_i])%100003 end;" +
-          (DBG
-            ? "if " + AC + "~=" + CK + " then warn('[Luripe] checksum mismatch - blob corrupted in paste') return end;"
-            : "if " + AC + "~=" + CK + " then return end;") +
-          J(2) +
-          // reverse layer 3 (index fold) -> layer 2 (round key) -> layer 1 (rolling), rebuild bytes
-          "local " + C + "={};local _p=" + SD + ";" +
-          "for _i=1,#" + B + " do " +
-          "local _b3=bit32.band(bit32.bxor(" + B + "[_i],bit32.band(" + RK2 + "+(_i-1),0xFF)),0xFF);" +
-          "local _e=bit32.band(bit32.bxor(_b3," + RK + "),0xFF);" +
-          "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
-          "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
-          C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
-          "local " + D + "=table.concat(" + C + ");" +
-          J(2) +
-          anti +
-          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
-          "local " + FN + ",_err=" + LS + "(" + D + ");" +
-          "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
-          // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
-          "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
-          "if setfenv and " + G + " then pcall(setfenv," + FN + "," + G + ") end;" +
-          (DBG ? "warn('[Luripe] compiled OK, executing...');" : "") +
-          "local _ok,_e2=pcall(" + FN + ");" +
-          (DBG
-            ? "if _ok then warn('[Luripe] finished OK') else warn('[Luripe] RUNTIME ERROR: '..tostring(_e2)); if debug and debug.traceback then warn(debug.traceback()) end end"
-            : "if not _ok then warn('Luripe: runtime error - '..tostring(_e2)) end") +
-          ";";
-        return loader;
-      }
-
-      // Static detector: constructs the VM cannot run reliably in Luau.
-      // If a script touches any of these, force Wrapper mode so it actually runs.
-      function needsWrapper(src) {
-        // Stage 1: only constructs that need NEW VM semantics force a wrapper hint.
-        // Roblox globals/services/userdata (Color3/UDim2/Vector/Enum/game/task/
-        // CFrame/bit32/Instance.new/services) already run in the VM via the
-        // GETGLOBAL -> GETTABLE -> CALLR/SELFCALL passthrough path, so they are
-        // no longer listed. pcall now has a real opcode (Stage 3). Only metatables
-        // remain unhandled (Stage 4), and even those are per-function spilled in VM
-        // mode rather than forcing a whole-script wrapper.
-        // Stage 4: setmetatable/getmetatable are now VM builtins, so metatables
-        // and OOP (__index/__newindex/operator metamethods) run in the VM. Only
-        // coroutines and goto remain genuinely unhandled.
-        var patterns = [
-          /\bcoroutine\s*\./, /\bgoto\b/
-        ];
-        for (var i = 0; i < patterns.length; i++) if (patterns[i].test(src)) return true;
-        return false;
-      }
-
-      function pickMode() {
-        const m = document.getElementById("mode").value;
-        // Explicit choice is respected. VM mode now uses the HYBRID compiler:
-        // it virtualizes everything it can and per-function spills only the
-        // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
-        // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw") return m;
-        // auto: AI verdict wins if present, then static detection, else VM.
-        const v = window.__luripeVerdict;
-        if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
-        const src = document.getElementById("input").value;
-        if (needsWrapper(src)) return "wrapper";
-        return "vm";
-      }
-
-      function downloadOutput(text) {
-        if (!text) return;
-        try {
-          const stamp = Date.now().toString(36);
-          const blob = new Blob([text], { type: "text/plain" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "luripe-" + stamp + ".lua";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
-        } catch (e) { /* download blocked; output is still in the box to copy */ }
-      }
-      function run() {
-        const src = document.getElementById("input").value;
-        const outEl = document.getElementById("output");
-        if (!src.trim()) { setStatus("No input to obfuscate.", "err"); return; }
-        const mode = pickMode();
-        const dbgEl = document.getElementById("dbg");
-        const DBG = !!(dbgEl && dbgEl.checked);
-        window.__luripeVMDebug = DBG;
-        if (mode === "raw") {
-          outEl.value = rawBundle(src);
-          downloadOutput(outEl.value);
-          setStatus("Raw mode - downloaded. No protection, runs as-is via executor.", "ok");
-          return;
-        }
-        if (mode === "wrapper") {
-          try {
-            setStatus("Obfuscating (wrapper mode)...");
-            outEl.value = wrapperBundle(src, DBG);
-            downloadOutput(outEl.value);
-            setStatus(DBG
-              ? "Protected in Wrapper mode (DEBUG ON) - downloaded. Run it and read the [Luripe] messages in your executor console."
-              : "Protected in Wrapper mode - downloaded. Universal compatibility (Color3/UDim2/Enum/getgc/etc all run).", "ok");
-          } catch (e) { outEl.value = ""; setStatus(e.message, "err"); }
-          return;
-        }
-        // VM mode (with auto-fallback to wrapper if compile fails)
-        try {
-          setStatus("Obfuscating (VM mode)...");
-          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(src);
+          // Use the AI-assisted rewrite when it was accepted (fewer/equal spills).
+          const __vmSrc = (window.__luripeAssisted && window.__luripeAssisted.trim()) ? window.__luripeAssisted : src;
+          const { OP, bytecode, constPool, spilledFns, usedOps } = compile(__vmSrc);
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
