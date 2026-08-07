@@ -2075,6 +2075,14 @@ if (require.main === module) {
   const mi = args.indexOf("--mode"); if (mi >= 0 && args[mi+1]) mode = args[mi+1];
   const src = fs.readFileSync(inFile, "utf8");
   const res = protect(src, { mode });
-  fs.writeFileSync(outFile, res.output);
+  // compile() (VM mode) may return the protected Lua as a string OR as an object
+  // carrying the source under a field. Normalize to the string we write out.
+  let out = res.output;
+  if (out && typeof out === "object") {
+    out = out.lua || out.source || out.code || out.output || out.protected ||
+          out.result || (typeof out.toString === "function" ? out.toString() : "");
+  }
+  if (typeof out !== "string") out = String(out);
+  fs.writeFileSync(outFile, out);
   console.log("[Luripe] mode=" + res.mode + (res.reason ? (" (" + res.reason + ")") : "") + " -> " + outFile);
 }
