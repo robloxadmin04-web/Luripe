@@ -1204,8 +1204,30 @@ end</textarea>
           return s;
         }
         function __lprep(s){ let o=__gotoNorm(__lphExpand(s));
-          o=o.replace(/\)\s*:\s*[A-Za-z_][A-Za-z0-9_.]*(\s*<[^>\r\n]*>)?(\s*\??)(\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*/g,")");
-          o=o.replace(/([A-Za-z0-9_\]])\s*:\s*(?!:)([A-Za-z_][A-Za-z0-9_.]*(?:<[^>\r\n]*>)?\??(?:\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*)(?=\s*[,)=\r\n])/g,"$1");
+          // ---- STRONGER LUAU TYPE STRIP (ordered) ----
+          // (a) Strip a typed RETURN annotation:  ) : Type  /  ) : {..}  / unions / optional / generics
+          //     up to the start of the body (newline, 'do', 'return', 'end', '{').
+          o=o.replace(/\)\s*:\s*(\{[^}]*\}|[A-Za-z_][\w.]*)(\s*<[^>\r\n]*>)?\??(\s*[|&]\s*(\{[^}]*\}|[A-Za-z_][\w.<>{}?]*))*/g, ")");
+          // (b) Strip typed PARAMS / typed local decls, repeatedly, until stable.
+          //     Handles chains: function(self: any, value: number, a: T?, b: A|B)
+          //     A type after ':' runs until , ) = or newline; may include {..}, <..>, ?, |, &.
+          var __prev;
+          var __typeRe = /([A-Za-z0-9_\]])\s*:\s*(?!:)(\{[^}]*\}|[A-Za-z_][\w.]*)(\s*<[^>\r\n]*>)?\??(\s*[|&]\s*(\{[^}]*\}|[A-Za-z_][\w.<>{}?]*)\??)*(?=\s*[,)=\r\n])/g;
+          var __guard=0;
+          do { __prev=o; o=o.replace(__typeRe, "$1"); __guard++; } while(o!==__prev && __guard<40);
+          // (c) Strip standalone type aliases:  type Name = ...   and  export type ...
+          o=o.replace(/(^|[\r\n])\s*export\s+type\s+[^\r\n]*/g, "$1");
+          o=o.replace(/(^|[\r\n])\s*type\s+[A-Za-z_]\w*\s*(<[^>\r\n]*>)?\s*=[^\r\n]*/g, "$1");
+          // ---- BARE GENERIC-FOR NORMALIZE (Luau: for k,v in t do -> for k,v in pairs(t) do) ----
+          // Only when the iterator is a single expression that is NOT already a call
+          // (ipairs(..)/pairs(..)/next/a function call), i.e. 'in <expr> do' where
+          // <expr> has no '(' â€” wrap it in pairs(). Preserves behaviour for tables.
+          o=o.replace(/\bfor\b([^\r\n]*?)\bin\b\s+([A-Za-z_][\w.\[\]]*?)\s+do\b/g, function(m, vars, iter){
+            // skip if iter is a known iterator call form (has '(') â€” already fine
+            if(/[()]/.test(iter)) return m;
+            return "for"+vars+"in pairs("+iter+") do";
+          });
+          // ---- compound assignment (unchanged) ----
           o=o.replace(/(^|[\r\n;]|\bthen\b|\bdo\b|\belse\b)(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]\r\n]+\])*)\s*(\.\.|[+\-*/%^])=\s*/g,function(m,p,ws,lv,op){return p+ws+lv+" = "+lv+" "+op+" ";});
           o=__lcont(o);
           return o;
@@ -2486,14 +2508,24 @@ end</textarea>
           "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
           "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
           C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
-          "local " + D + "=table.concat(" + C + ");" +
+          // FRAGMENT-SPLIT: never hold the full decoded source in one variable.
+          // Slice the decoded char array C into a randomized number of runs held
+          // in _fr[]; the whole string is only assembled inside the loadstring
+          // call argument below (table.concat(_fr)), so a variable/memory scan
+          // sees only fragments, not the plaintext.
+          "local _frN=math.max(3,math.floor(#" + C + "/" + (900 + Math.floor(Math.random()*700)) + ")+3);" +
+          "local _fr={};local _fsz=math.ceil(#" + C + "/_frN);" +
+          "for _fi=1,#" + C + ",_fsz do _fr[#_fr+1]=table.concat(" + C + ",'',_fi,math.min(_fi+_fsz-1,#" + C + ")) end;" +
+          // keep a length-only var for the debug message (no content)
+          "local _frLen=0;for _z=1,#_fr do _frLen=_frLen+#_fr[_z] end;" +
           J(2) +
           anti +
-          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          (DBG ? "warn('[Luripe] decoded '..tostring(_frLen)..' chars (fragmented), canary OK');" : "") +
           // Roblox in-game blocks loadstring; only executors expose it. If LS is
           // nil here, tell the user plainly instead of dying silently.
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
-          "local " + FN + ",_err=" + LS + "(" + D + ");" +
+          // full source materialized ONLY as this transient call argument, then GC'd.
+          "local " + FN + ",_err=" + LS + "(table.concat(_fr));_fr=nil;" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
           "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
@@ -3153,14 +3185,24 @@ end</textarea>
           "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
           "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
           C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
-          "local " + D + "=table.concat(" + C + ");" +
+          // FRAGMENT-SPLIT: never hold the full decoded source in one variable.
+          // Slice the decoded char array C into a randomized number of runs held
+          // in _fr[]; the whole string is only assembled inside the loadstring
+          // call argument below (table.concat(_fr)), so a variable/memory scan
+          // sees only fragments, not the plaintext.
+          "local _frN=math.max(3,math.floor(#" + C + "/" + (900 + Math.floor(Math.random()*700)) + ")+3);" +
+          "local _fr={};local _fsz=math.ceil(#" + C + "/_frN);" +
+          "for _fi=1,#" + C + ",_fsz do _fr[#_fr+1]=table.concat(" + C + ",'',_fi,math.min(_fi+_fsz-1,#" + C + ")) end;" +
+          // keep a length-only var for the debug message (no content)
+          "local _frLen=0;for _z=1,#_fr do _frLen=_frLen+#_fr[_z] end;" +
           J(2) +
           anti +
-          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          (DBG ? "warn('[Luripe] decoded '..tostring(_frLen)..' chars (fragmented), canary OK');" : "") +
           // Roblox in-game blocks loadstring; only executors expose it. If LS is
           // nil here, tell the user plainly instead of dying silently.
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
-          "local " + FN + ",_err=" + LS + "(" + D + ");" +
+          // full source materialized ONLY as this transient call argument, then GC'd.
+          "local " + FN + ",_err=" + LS + "(table.concat(_fr));_fr=nil;" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
           "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
@@ -3711,14 +3753,24 @@ end</textarea>
           "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
           "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
           C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
-          "local " + D + "=table.concat(" + C + ");" +
+          // FRAGMENT-SPLIT: never hold the full decoded source in one variable.
+          // Slice the decoded char array C into a randomized number of runs held
+          // in _fr[]; the whole string is only assembled inside the loadstring
+          // call argument below (table.concat(_fr)), so a variable/memory scan
+          // sees only fragments, not the plaintext.
+          "local _frN=math.max(3,math.floor(#" + C + "/" + (900 + Math.floor(Math.random()*700)) + ")+3);" +
+          "local _fr={};local _fsz=math.ceil(#" + C + "/_frN);" +
+          "for _fi=1,#" + C + ",_fsz do _fr[#_fr+1]=table.concat(" + C + ",'',_fi,math.min(_fi+_fsz-1,#" + C + ")) end;" +
+          // keep a length-only var for the debug message (no content)
+          "local _frLen=0;for _z=1,#_fr do _frLen=_frLen+#_fr[_z] end;" +
           J(2) +
           anti +
-          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          (DBG ? "warn('[Luripe] decoded '..tostring(_frLen)..' chars (fragmented), canary OK');" : "") +
           // Roblox in-game blocks loadstring; only executors expose it. If LS is
           // nil here, tell the user plainly instead of dying silently.
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
-          "local " + FN + ",_err=" + LS + "(" + D + ");" +
+          // full source materialized ONLY as this transient call argument, then GC'd.
+          "local " + FN + ",_err=" + LS + "(table.concat(_fr));_fr=nil;" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
           "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
@@ -4269,14 +4321,24 @@ end</textarea>
           "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
           "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
           C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
-          "local " + D + "=table.concat(" + C + ");" +
+          // FRAGMENT-SPLIT: never hold the full decoded source in one variable.
+          // Slice the decoded char array C into a randomized number of runs held
+          // in _fr[]; the whole string is only assembled inside the loadstring
+          // call argument below (table.concat(_fr)), so a variable/memory scan
+          // sees only fragments, not the plaintext.
+          "local _frN=math.max(3,math.floor(#" + C + "/" + (900 + Math.floor(Math.random()*700)) + ")+3);" +
+          "local _fr={};local _fsz=math.ceil(#" + C + "/_frN);" +
+          "for _fi=1,#" + C + ",_fsz do _fr[#_fr+1]=table.concat(" + C + ",'',_fi,math.min(_fi+_fsz-1,#" + C + ")) end;" +
+          // keep a length-only var for the debug message (no content)
+          "local _frLen=0;for _z=1,#_fr do _frLen=_frLen+#_fr[_z] end;" +
           J(2) +
           anti +
-          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          (DBG ? "warn('[Luripe] decoded '..tostring(_frLen)..' chars (fragmented), canary OK');" : "") +
           // Roblox in-game blocks loadstring; only executors expose it. If LS is
           // nil here, tell the user plainly instead of dying silently.
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
-          "local " + FN + ",_err=" + LS + "(" + D + ");" +
+          // full source materialized ONLY as this transient call argument, then GC'd.
+          "local " + FN + ",_err=" + LS + "(table.concat(_fr));_fr=nil;" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
           "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
@@ -4827,14 +4889,24 @@ end</textarea>
           "local _ks=bit32.band(bit32.bxor(bit32.bxor(" + SD + ",_i*167),_p),0xFF);" +
           "local _c=bit32.band(bit32.bxor(_e,_ks),0xFF)-7;if _c<0 then _c=_c+256 end;" +
           C + "[#" + C + "+1]=string.char(bit32.band(_c,0xFF));_p=_e end;" +
-          "local " + D + "=table.concat(" + C + ");" +
+          // FRAGMENT-SPLIT: never hold the full decoded source in one variable.
+          // Slice the decoded char array C into a randomized number of runs held
+          // in _fr[]; the whole string is only assembled inside the loadstring
+          // call argument below (table.concat(_fr)), so a variable/memory scan
+          // sees only fragments, not the plaintext.
+          "local _frN=math.max(3,math.floor(#" + C + "/" + (900 + Math.floor(Math.random()*700)) + ")+3);" +
+          "local _fr={};local _fsz=math.ceil(#" + C + "/_frN);" +
+          "for _fi=1,#" + C + ",_fsz do _fr[#_fr+1]=table.concat(" + C + ",'',_fi,math.min(_fi+_fsz-1,#" + C + ")) end;" +
+          // keep a length-only var for the debug message (no content)
+          "local _frLen=0;for _z=1,#_fr do _frLen=_frLen+#_fr[_z] end;" +
           J(2) +
           anti +
-          (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          (DBG ? "warn('[Luripe] decoded '..tostring(_frLen)..' chars (fragmented), canary OK');" : "") +
           // Roblox in-game blocks loadstring; only executors expose it. If LS is
           // nil here, tell the user plainly instead of dying silently.
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
-          "local " + FN + ",_err=" + LS + "(" + D + ");" +
+          // full source materialized ONLY as this transient call argument, then GC'd.
+          "local " + FN + ",_err=" + LS + "(table.concat(_fr));_fr=nil;" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
           "local " + G + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
