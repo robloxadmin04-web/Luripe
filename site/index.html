@@ -792,14 +792,19 @@ end</textarea>
                        F+"=cf;"+N.upvals+"=fn.ups;"+CT+"."+CF.ip+"=fn.addr;"+CT+"."+CF.jumped+"=true "+
                      "else "+P+"(fn(obj,(table.unpack or unpack)(args,1,ac))) end",
           CALLR:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+
-                     "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);if _br then fn=_br[args[1]] end end;"+
+                     "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);"+
+                     "if _br then for _ai=1,ac do local _an=args[_ai];if type(_an)=='string' then local _c=_br[_an];if _c~=nil then fn=_c;break end;local _bn=_an:match('([^.]+)$');if _bn and _br[_bn]~=nil then fn=_br[_bn];break end end end end;"+
+                     "if fn==nil then local _gg=(getgenv and getgenv());if _gg then for _ai=1,ac do local _an=args[_ai];if type(_an)=='string' and _gg[_an]~=nil then fn=_gg[_an];break end end end end end;"+
                      "if type(fn)=='table' and fn.__cl then "+
                        "local cf={};for k=1,ac do cf[k-1]=args[k] end;"+
                        N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
                        F+"=cf;"+N.upvals+"=fn.ups;"+CT+"."+CF.ip+"=fn.addr;"+CT+"."+CF.jumped+"=true "+
+                     "elseif fn==nil then error('Luripe: could not resolve function to call (spilled cross-boundary) - consider Wrapper mode for this script') "+
                      "else "+P+"(fn((table.unpack or unpack)(args,1,ac))) end",
           RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+
-                     "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);if _br then fn=_br[args[1]] end end;"+
+                     "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);"+
+                     "if _br then for _ai=1,ac do local _an=args[_ai];if type(_an)=='string' then local _c=_br[_an];if _c~=nil then fn=_c;break end;local _bn=_an:match('([^.]+)$');if _bn and _br[_bn]~=nil then fn=_br[_bn];break end end end end;"+
+                     "if fn==nil then local _gg=(getgenv and getgenv());if _gg then for _ai=1,ac do local _an=args[_ai];if type(_an)=='string' and _gg[_an]~=nil then fn=_gg[_an];break end end end end end;"+
                      "if type(fn)=='table' and fn.__cl then "+
                        "local cf={};for k=1,ac do cf[k-1]=args[k] end;"+
                        N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
