@@ -1,4 +1,4 @@
-//  luripe.js â€” Luripe obfuscator engine (VM + wrapper), Node module.
+//  luripe.js — Luripe obfuscator engine (VM + wrapper), Node module.
 //  Synced from the working browser build. Exposes compile(), wrapperBundle(),
 //  and needsWrapper() detection. Requires: npm install luaparse
 //
@@ -8,7 +8,7 @@
 //
 //  "auto" runs the VM path, self-checks it, and falls back to wrapper when the
 //  script uses constructs the VM cannot safely virtualize (executor globals,
-//  Roblox API, coroutines, etc.) â€” so a broken build never reaches Roblox.
+//  Roblox API, coroutines, etc.) — so a broken build never reaches Roblox.
 
 const luaparse = require("luaparse");
 
@@ -49,7 +49,7 @@ const document = {
         // prelude/metamethod paths, so the generated VM was missing handlers.
         // When the program hit a missing opcode, the binary-search dispatch
         // routed to the wrong handler and corrupted the stack ("attempt to get
-        // length of a number value"). We now ALWAYS emit every handler â€” a
+        // length of a number value"). We now ALWAYS emit every handler — a
         // slightly larger VM that is guaranteed correct. `usedNames` is ignored.
         const EFF = OPS.slice();
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
@@ -124,6 +124,9 @@ const document = {
           CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do local c=a[2+i];if c>=0 then ups[i-1]="+F+"[c] else ups[i-1]=("+N.upvals+" and "+N.upvals+"[-c-1]) end end;"+P+"({__cl=true,addr=addr,ups=ups})",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
           GETGLOBAL: "local nm="+N.decodeString+"(a);"+P+"((_ENV or getfenv and getfenv() or _G)[nm])",
+          // PARTIAL-VM bridge: publish a VM local into the shared bridge table so a
+          // spilled callback (real Lua closure) can read/update it across the boundary.
+          BRIDGESET: "local nm="+N.decodeString+"(a);local val="+O+"();local G=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;G.__LRP_BRIDGE=G.__LRP_BRIDGE or {};G.__LRP_BRIDGE[nm]=val",
           SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+
                      "if type(fn)=='table' and fn.__cl then "+
                        "local cf={};cf[0]=obj;for k=1,ac do cf[k]=args[k] end;"+
@@ -418,7 +421,7 @@ const document = {
         "RETURN","NEWTABLE","SETTABLE","GETTABLE","CONCAT","BUILTIN","TLEN",
         "MOD","RETURNN","STOREMULTI","VARARG","NOT","NEWCELL","LOADCELL",
         "STORECELL","LOADUP","STOREUP","CLOSURE","CALLC","LOADK",
-        "GETGLOBAL","SELFCALL","CALLR","RCALL","PCALL",
+        "GETGLOBAL","SELFCALL","CALLR","RCALL","PCALL","BRIDGESET",
       ];
       function buildOpcodeMap() {
         const nums = [];
@@ -837,10 +840,53 @@ const document = {
               !argNode.identifier) {
             const src = nodeSource(argNode);
             if (src) {
+              // PARTIAL-VM bridge: find outer LOCALS this callback references that
+              // live in the current VM scope. Those must be shared through the
+              // global bridge table so the spilled Lua closure sees/updates them.
+              const refd = new Set();
+              (function collect(n){ if(!n||typeof n!=="object")return; if(Array.isArray(n)){n.forEach(collect);return;}
+                if(n.type==="Identifier") refd.add(n.name);
+                for(const k in n){ if(k==="type")continue; collect(n[k]); } })(argNode.body || argNode);
+              const bridged = [];
+              for (const nm of refd) {
+                // a VM local (numeric slot) or a cell-backed local in the current scope
+                if (scope[nm] !== undefined && typeof scope[nm] === "number") bridged.push(nm);
+                else if (scope.__upvals && scope.__upvals[nm] !== undefined) bridged.push(nm);
+              }
               const gsym = '__lrp_spill_' + (__spillId++);
-              // src is `function(...) ... end`; wrap so the island returns it as
-              // a genuine Lua function value bound to the shared global env.
-              spilledFns.push({ sym: gsym, src: 'return ' + src });
+              if (bridged.length) {
+                // Rewrite the callback source so each bridged name resolves through
+                // the shared bridge table __LRP_BRIDGE. We inject a prelude that
+                // maps locals <-> bridge on entry/exit, keeping closure semantics.
+                // Prelude: pull current values in; Postlude via __index/__newindex
+                // is overkill — instead alias reads/writes with a metatable proxy.
+                // Simpler + robust: wrap the user fn so the bridged names become
+                // upvalues initialized from the bridge and written back after call.
+                const decls = bridged.map(n => "local "+n+"=__LRP_BRIDGE["+JSON.stringify(n)+"]").join(";");
+                const writes = bridged.map(n => "__LRP_BRIDGE["+JSON.stringify(n)+"]="+n).join(";");
+                // src is 'function(params) BODY end' -> capture params + body via a thin wrapper.
+                // We produce: return (function() <decls>; local __f=<src>; return function(...) 
+                //   <refresh decls from bridge>; local r={__f(...)}; <writes>; return (table.unpack or unpack)(r) end end)()
+                const wrapped =
+                  "return (function() " + decls + "; local __f=" + src + "; " +
+                  "return function(...) " +
+                    bridged.map(n => n+"=__LRP_BRIDGE["+JSON.stringify(n)+"]").join(";") + "; " +
+                    "local __r={__f(...)}; " + writes + "; " +
+                    "return (table.unpack or unpack)(__r) end end)()";
+                spilledFns.push({ sym: gsym, src: wrapped, bridged: bridged.slice() });
+                // At the call site, publish current VM values into the bridge BEFORE
+                // pushing the closure, and mark for read-back AFTER the call.
+                for (const n of bridged) {
+                  // push value, then store into bridge via a BRIDGESET opcode
+                  if (scope.__upvals && scope.__upvals[n] !== undefined) emit(OP.LOADUP, scope.__upvals[n]);
+                  else if (scope.__cells && scope.__cells.has(scope[n])) emit(OP.LOADCELL, scope[n]);
+                  else emit(OP.LOAD, scope[n]);
+                  emit(OP.BRIDGESET, encodeString(n));
+                }
+                argNode.__lrpBridged = bridged.slice();
+              } else {
+                spilledFns.push({ sym: gsym, src: 'return ' + src });
+              }
               emit(OP.GETGLOBAL, encodeString(gsym));
               return;
             }
@@ -868,7 +914,7 @@ const document = {
           }
           // (print special-case removed: multi-arg print now uses the normal CALLR path)
           
-          // (BUILTIN hardcoded routing removed â€” Lua resolves library calls
+          // (BUILTIN hardcoded routing removed — Lua resolves library calls
           // uniformly as GETGLOBAL+GETTABLE+CALL. math.max, string.upper, etc.
           // now flow through the same runtime CALLR/SELFCALL path as any call,
           // via the MemberExpression/qualified-call handling below. No guessing.)
@@ -1383,6 +1429,9 @@ const document = {
         // loadstring/load; each island shares getgenv()/_G so game/print/etc work.
         let spillPrelude = "";
         if (spilledFns.length) {
+          // PARTIAL-VM bridge table: shared between the VM (BRIDGESET) and spilled
+          // callbacks. Created in the real global env so both sides see one table.
+          spillPrelude += "do local G=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;G.__LRP_BRIDGE=G.__LRP_BRIDGE or {};local __LRP_BRIDGE=G.__LRP_BRIDGE end;";
           // ENCRYPTED SPILL: each spilled function source is encoded as a number
           // stream (rolling cipher + per-fn round key) and decoded at runtime
           // before loadstring. This removes ALL plain source from the spill zone
@@ -2036,7 +2085,7 @@ function needsWrapper(source) {
 }
 
 // vmProtect(): headless VM pipeline. run() is a BROWSER-UI function (reads a DOM
-// textarea, writes to a DOM element, triggers a download) and returns nothing â€”
+// textarea, writes to a DOM element, triggers a download) and returns nothing —
 // unusable under Node. The real string-producing path inside run() is
 // compile() -> bundle(); we call those two directly here.
 function vmProtect(source) {
