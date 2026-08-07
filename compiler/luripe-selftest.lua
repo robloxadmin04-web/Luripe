@@ -54,7 +54,14 @@ local genv = {}   -- getgenv() table
 
 -- executor functions
 G.getgenv        = function() return genv end
-G.getrenv        = function() return _ENV end
+local __renv = setmetatable({
+  getfenv = function() return makeStub('fenv') end,
+  setfenv = fnStub(),
+  debug = setmetatable({ info = function() return makeStub('info') end, getinfo = function() return makeStub('info') end,
+    getupvalue = fnStub(), setupvalue = fnStub(), getupvalues = function() return {} end,
+    traceback = function() return '' end, gethook = function() return nil end, sethook = function() end }, STUB_MT),
+}, STUB_MT)
+G.getrenv        = function() return __renv end
 G.getsenv        = fnStub()
 G.hookfunction   = function(old, new) return old end   -- return original
 G.hookmetamethod = function() return function() end end
@@ -136,6 +143,14 @@ G.task = {
   wait  = function() return 0 end,
   cancel= function() end,
 }
+
+-- Luau debug.* extras (Lua 5.4 debug lacks these) — stub so scripts don't nil-call.
+if debug then
+  debug.info = debug.info or function() return makeStub('info') end
+  debug.getupvalue = debug.getupvalue or fnStub()
+  debug.setupvalue = debug.setupvalue or function() end
+  debug.getupvalues = debug.getupvalues or function() return {} end
+end
 
 -- bit32 exists in 5.4? No — provide it (VM needs it).
 if not bit32 then
