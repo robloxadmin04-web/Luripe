@@ -748,10 +748,10 @@ end</textarea>
           STOREMULTI:"local sl=a;local n="+O+"();local vs={};for k=n,1,-1 do vs[k]="+O+"() end;for k=1,#sl do "+F+"[sl[k]]=vs[k] end",
           VARARG:   "local st=a;local t={};local n=0;local k=st;while "+F+"[k]~=nil do n=n+1;t[n]="+F+"[k];k=k+1 end;"+P+"(t)",
           NEWCELL:  F+"[a]={v="+O+"()}",
-          LOADCELL: "local cl="+F+"[a];"+P+"(type(cl)=='table' and cl.v or cl)",
+          LOADCELL: "local cl="+F+"[a];"+P+"(cl and cl.v or nil)",
           STORECELL:"local val="+O+"();local cl="+F+"[a];if cl==nil then cl={v=nil};"+F+"[a]=cl end;cl.v=val",
-          LOADUP:   "local u="+N.upvals+" and "+N.upvals+"[a];"+P+"(type(u)=='table' and u.v or u)",
-          STOREUP:  "local val="+O+"();local u="+N.upvals+" and "+N.upvals+"[a];if type(u)=='table' then u.v=val end",
+          LOADUP:   "local u="+N.upvals+" and "+N.upvals+"[a];"+P+"(u and u.v or nil)",
+          STOREUP:  "local val="+O+"();local u="+N.upvals+" and "+N.upvals+"[a];if u then u.v=val end",
           // Closure arg is FLAT: {addr, nc, cap1, cap2, ...}. The number-stream
           // encoder cannot represent a NESTED array, so captures are inlined with
           // a leading count nc. (Fixes "length of a number" from #caps on garbage.)
@@ -1443,18 +1443,6 @@ end</textarea>
             if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
           }
           scope.__nestedNames = namesUsedByNestedFns(node.body);
-          // Cell-wrap any parameter that a still-deeper closure captures, so the
-          // inner LOADUP sees a cell {v=...} and not a bare value (fixes
-          // "index number with 'v'" for anonymous fns like outer's function(b)).
-          for (const p of node.parameters) {
-            if (p.type === "VarargLiteral") continue;
-            const psl = scope[p.name];
-            if (scope.__nestedNames && scope.__nestedNames.has(p.name)) {
-              if (!scope.__cells) scope.__cells = new Set();
-              scope.__cells.add(psl);
-              emit(OP.LOAD, psl); emit(OP.NEWCELL, psl);
-            }
-          }
           compileBlock(node.body);
           emitNumber(0); emit(OP.RETURN);
           scope = savedScope; nextSlot = savedNextSlot; varargSlot = savedVararg;
