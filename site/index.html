@@ -591,8 +591,6 @@ end</textarea>
               <option value="auto">Auto (AI picks)</option>
               <option value="vm">VM (strong)</option>
               <option value="wrapper">Wrapper (universal)</option>
-              <option value="native">Native (AST, no-VM)</option>
-              <option value="hybrid">Hybrid (AST + VM on LPH_VIRTUALIZE)</option>
               <option value="raw">Raw (always runs)</option>
             </select>
             <div class="cs-btn" tabindex="0">
@@ -685,7 +683,7 @@ end</textarea>
         // prelude/metamethod paths, so the generated VM was missing handlers.
         // When the program hit a missing opcode, the binary-search dispatch
         // routed to the wrong handler and corrupted the stack ("attempt to get
-        // length of a number value"). We now ALWAYS emit every handler " a
+        // length of a number value"). We now ALWAYS emit every handler - a
         // slightly larger VM that is guaranteed correct. `usedNames` is ignored.
         const EFF = OPS.slice();
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
@@ -1181,7 +1179,7 @@ end</textarea>
 
         function __gotoNorm(s){
           // ::continue:: label at end of a loop body + goto continue -> 'continue'
-          // 1) drop the label declarations (::continue::) - they become no-ops
+          // 1) drop the label declarations (::continue::) "" they become no-ops
           //    since the continue rewriter injects the loop-tail semantics.
           // 2) turn 'goto continue' into 'continue'.
           let o = s;
@@ -1241,9 +1239,9 @@ end</textarea>
           // ---- BARE GENERIC-FOR NORMALIZE (Luau: for k,v in t do -> for k,v in pairs(t) do) ----
           // Only when the iterator is a single expression that is NOT already a call
           // (ipairs(..)/pairs(..)/next/a function call), i.e. 'in <expr> do' where
-          // <expr> has no '(' - wrap it in pairs(). Preserves behaviour for tables.
+          // <expr> has no '(' "" wrap it in pairs(). Preserves behaviour for tables.
           o=o.replace(/\bfor\b([^\r\n]*?)\bin\b\s+([A-Za-z_][\w.\[\]]*?)\s+do\b/g, function(m, vars, iter){
-            // skip if iter is a known iterator call form (has '(') - already fine
+            // skip if iter is a known iterator call form (has '(') "" already fine
             if(/[()]/.test(iter)) return m;
             return "for"+vars+"in pairs("+iter+") do";
           });
@@ -1614,7 +1612,7 @@ end</textarea>
                 // the shared bridge table __LRP_BRIDGE. We inject a prelude that
                 // maps locals <-> bridge on entry/exit, keeping closure semantics.
                 // Prelude: pull current values in; Postlude via __index/__newindex
-                // is overkill " instead alias reads/writes with a metatable proxy.
+                // is overkill - instead alias reads/writes with a metatable proxy.
                 // Simpler + robust: wrap the user fn so the bridged names become
                 // upvalues initialized from the bridge and written back after call.
                 const decls = bridged.map(n => "local "+n+"=__LRP_BRIDGE["+JSON.stringify(n)+"]").join(";");
@@ -1630,7 +1628,7 @@ end</textarea>
                     "local __r={__f(...)}; " + writes + "; " +
                     "return (table.unpack or unpack)(__r) end end)()";
                 spilledFns.push({ sym: gsym, src: wrapped, bridged: bridged.slice() });
-                // NOTE: do NOT publish to the bridge here " emitting LOAD+BRIDGESET
+                // NOTE: do NOT publish to the bridge here - emitting LOAD+BRIDGESET
                 // mid-argument-assembly corrupts the call's stack. The bridge is
                 // filled by mirror-on-assign (after the local is written) and read
                 // by the wrapper at fire-time. Seed any already-known values now via
@@ -1668,7 +1666,7 @@ end</textarea>
           }
           // (print special-case removed: multi-arg print now uses the normal CALLR path)
           
-          // (BUILTIN hardcoded routing removed " Lua resolves library calls
+          // (BUILTIN hardcoded routing removed - Lua resolves library calls
           // uniformly as GETGLOBAL+GETTABLE+CALL. math.max, string.upper, etc.
           // now flow through the same runtime CALLR/SELFCALL path as any call,
           // via the MemberExpression/qualified-call handling below. No guessing.)
@@ -2266,7 +2264,7 @@ end</textarea>
             "local ok2,rv=pcall(cf);" +
             "if not ok2 or rv~=" + (_cA + _cB) + " then return nil end;" +
             "return f end)();" +
-            // if resolution failed (hooked/removed), skip spill entirely - the VM
+            // if resolution failed (hooked/removed), skip spill entirely "" the VM
             // core still runs; only un-virtualizable fallbacks are dropped.
             "if type(" + LSV + ")~='function' then " + LSV + "=nil end;";
           spillPrelude += "local " + GV + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;";
@@ -2608,7 +2606,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native" || m === "hybrid") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -2640,30 +2638,6 @@ end</textarea>
         const dbgEl = document.getElementById("dbg");
         const DBG = !!(dbgEl && dbgEl.checked);
         window.__luripeVMDebug = DBG;
-        if (mode === "hybrid") {
-          try {
-            setStatus("Obfuscating (Hybrid: AST + VM on marked functions)...");
-            outEl.value = hybridBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Hybrid mode - downloaded. Marked functions (LPH_VIRTUALIZE) are VM'd; the rest is Native AST. Full compatibility + strong protection on sensitive parts.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Hybrid failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
-        if (mode === "native") {
-          try {
-            setStatus("Obfuscating (Native AST mode)...");
-            outEl.value = astBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Native mode - downloaded. Real Lua (no VM, no loadstring-source): all OOP/UI/callbacks run; strings encrypted, numbers/flow obscured.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Native failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
         if (mode === "raw") {
           outEl.value = rawBundle(src);
           downloadOutput(outEl.value);
@@ -2716,155 +2690,6 @@ end</textarea>
 
       // Raw mode: no protection, just ensures the script runs via the executor.
       // Useful for testing or when the user just wants a runnable copy.
-
-
-      // ================= HYBRID MODE (AST + selective VM) =================
-      // Whole script is protected with Native (AST). Any function passed to
-      // LPH_VIRTUALIZE(function(...) ... end) is compiled through the VM and
-      // embedded as a strong blob; everything else stays native-compatible.
-      // This mirrors Luraph's LPH_JIT/LPH_NO_VIRTUALIZE selective model.
-      function hybridBundle(src){
-        // Find LPH_VIRTUALIZE( ... ) with balanced parens; VM-compile the inner
-        // function expression, register under a unique global, and swap the call
-        // site for that global reference. Fall back to leaving it native if the
-        // inner can't be VM-compiled.
-        function findMacro(s, from){
-          var re=/\bLPH_VIRTUALIZE\s*\(/g; re.lastIndex=from||0;
-          var m=re.exec(s); if(!m) return null;
-          var open=m.index+m[0].length-1, depth=0, i=open, inStr=false, sc="";
-          for(;i<s.length;i++){ var c=s[i];
-            if(inStr){ if(c==="\\")i++; else if(c===sc)inStr=false; continue; }
-            if(c==='"'||c==="'"){inStr=true;sc=c;continue;}
-            if(c==="(")depth++; else if(c===")"){depth--; if(depth===0)return{start:m.index,openEnd:open+1,end:i+1,inner:s.slice(open+1,i)};}
-          }
-          return null;
-        }
-        var vmPre = ""; var idx=0; var out=src; var count=0;
-        var g;
-        while((g=findMacro(out, idx))!==null){
-          var inner=g.inner.trim();
-          var ok=false, gsym="__lrp_vz_"+(count++);
-          try{
-            // VM-compile the inner function expression as: return <inner>
-            var r=compile("return "+inner);
-            var blob=bundle(r.OP, r.bytecode, r.constPool, r.spilledFns, r.usedOps);
-            // The blob is a full self-running chunk that RETURNS the value of
-            // 'return <inner>' i.e. the function. Wrap so it assigns to a global.
-            vmPre += "do local __v=(function() "+blob+" end)(); (getgenv and getgenv() or _G)['"+gsym+"']=__v end;";
-            // replace macro call site with the global lookup
-            out=out.slice(0,g.start)+"((getgenv and getgenv() or _G)['"+gsym+"'])"+out.slice(g.end);
-            ok=true;
-          }catch(e){
-            // can't VM this one -> unwrap the macro, keep native
-            out=out.slice(0,g.start)+"("+inner+")"+out.slice(g.end);
-          }
-          idx=g.start+2;
-        }
-        // Now Native-transform the remaining script (with macro sites swapped).
-        var nativeOut=astBundle(out);
-        return vmPre + nativeOut;
-      }
-      // ================= NATIVE (AST-TRANSFORM) MODE =================
-      // Emits valid, directly-runnable Lua with encrypted string literals,
-      // MBA'd numbers, and a junk preamble. No VM, no loadstring(source): the
-      // output IS Lua, so all OOP/UI/callbacks run natively. Strong-ish static
-      // protection without the wrapper's single-plaintext-loadstring weakness.
-      function astBundle(src){
-        // Reuse the VM preprocessor to strip Luau types / normalize before parse.
-        var pre = (typeof __lprepGlobal==='function') ? __lprepGlobal(src) : src;
-        // __lprep is defined inside compile(); expose a light standalone strip here
-        // so Native mode does not depend on compile() internals.
-        pre = __nativePrep(src);
-        var ast = luaparse.parse(pre, { ranges: true, comments: false, scope: false });
-        var SRC = pre;
-        var out = [];
-        // ---- per-string cipher (rolling, matches decoder emitted below) ----
-        var SALT = 1 + Math.floor(Math.random()*250);
-        function encStr(s){
-          var seed = 1 + Math.floor(Math.random()*254);
-          var arr = [seed]; var prev = seed;
-          // UTF-8 encode
-          var bytes = [];
-          for (var ch of s){ var cp = ch.codePointAt(0);
-            if(cp<0x80) bytes.push(cp);
-            else if(cp<0x800){ bytes.push(0xc0|(cp>>6),0x80|(cp&0x3f)); }
-            else if(cp<0x10000){ bytes.push(0xe0|(cp>>12),0x80|((cp>>6)&0x3f),0x80|(cp&0x3f)); }
-            else { bytes.push(0xf0|(cp>>18),0x80|((cp>>12)&0x3f),0x80|((cp>>6)&0x3f),0x80|(cp&0x3f)); }
-          }
-          for(var i=0;i<bytes.length;i++){
-            var ks = (seed ^ ((i+1)*167) ^ prev ^ SALT) & 0xff;
-            var e = ((bytes[i]+7)&0xff) ^ ks;
-            arr.push(e); prev = e;
-          }
-          return arr;
-        }
-        var DEC = "_"+Math.random().toString(36).slice(2,8);
-        // helper name for string-decode call
-        function strLit(s){ return DEC+"({"+encStr(s).join(",")+"})"; }
-        function num(n){
-          if(!Number.isFinite(n)) return String(n);
-          if(Number.isInteger(n) && Math.random()<0.6){
-            var b = Math.floor(Math.random()*5000)+1; var a = n + b; // a-b=n
-            return "("+a+"-"+b+")";
-          }
-          return String(n);
-        }
-        // ---- AST -> source with literal transforms ----
-        // We do a source-level rewrite guided by node ranges: replace every
-        // StringLiteral and NumericLiteral by its transformed form, leave the
-        // rest verbatim. Range-based so we never mis-emit complex syntax.
-        var edits = []; // {start,end,text}
-        (function walk(node){
-          if(!node || typeof node!=="object") return;
-          if(Array.isArray(node)){ node.forEach(walk); return; }
-          if(node.type==="StringLiteral" && node.range){
-            var raw = SRC.slice(node.range[0], node.range[1]);
-            // SAFETY: only transform a clean single/double quoted literal whose
-            // value the parser resolved. Long-bracket ([[..]]), unparsed, or any
-            // literal without a clean value is left VERBATIM so we never emit
-            // invalid syntax (fixes "'=' expected near 'end'"). A decode-call is
-            // a valid expression, so replacing a normal string is always safe;
-            // the only danger was mis-ranged/edge literals, now skipped.
-            var val = node.value;
-            var okQuote = /^"(?:[^"\]|\.)*"$/.test(raw) || /^'(?:[^'\]|\.)*'$/.test(raw);
-            if(val===undefined || val===null || !okQuote){ return; } // leave verbatim
-            edits.push({start:node.range[0], end:node.range[1], text: strLit(val)});
-            return;
-          }
-          if(node.type==="NumericLiteral" && node.range){
-            edits.push({start:node.range[0], end:node.range[1], text: num(node.value)});
-            return;
-          }
-          for(var k in node){ if(k==="range"||k==="type")continue; walk(node[k]); }
-        })(ast.body);
-        // apply edits right-to-left
-        edits.sort((a,b)=>b.start-a.start);
-        var body = SRC;
-        for(var e of edits){ body = body.slice(0,e.start) + e.text + body.slice(e.end); }
-        // ---- runtime string decoder (pure Lua, no loadstring) ----
-        var decoder =
-          "local "+DEC+"=function(t) local o={} local p=t[1] for i=2,#t do "+
-          "local e=t[i] local ks=bit32.band(bit32.bxor(bit32.bxor(bit32.bxor(t[1],(i-1)*167),p),"+SALT+"),0xFF) "+
-          "local c=bit32.band(bit32.bxor(e,ks),0xFF)-7 if c<0 then c=c+256 end "+
-          "o[#o+1]=string.char(bit32.band(c,0xFF)) p=e end return table.concat(o) end;";
-        // ---- junk / opaque preamble ----
-        var jn = function(){ var v="_"+Math.random().toString(36).slice(2,7); var a=(Math.random()*9999)|0,b=((Math.random()*99)|0)+1;
-          return "local "+v+"="+a+";if ("+v+"*"+v+")>=0 then "+v+"="+v+"+"+b+" end;"; };
-        var junk = jn()+jn()+jn();
-        return junk + decoder + body;
-      }
-      // Minimal standalone Luau strip for Native mode (types + bare generic-for).
-      function __nativePrep(s){
-        var o=s;
-        o=o.replace(/\)\s*:\s*(\{[^}]*\}|[A-Za-z_][\w.]*)(\s*<[^>\r\n]*>)?\??(\s*[|&]\s*(\{[^}]*\}|[A-Za-z_][\w.<>{}?]*))*/g, ")");
-        var prev,gg=0,tre=/([A-Za-z0-9_\]])\s*:\s*(?!:)(\{[^}]*\}|[A-Za-z_][\w.]*)(\s*<[^>\r\n]*>)?\??(\s*[|&]\s*(\{[^}]*\}|[A-Za-z_][\w.<>{}?]*)\??)*(?=\s*[,)=\r\n])/g;
-        do{ prev=o; o=o.replace(tre,"$1"); gg++; }while(o!==prev && gg<40);
-        o=o.replace(/(^|[\r\n])\s*export\s+type\s+[^\r\n]*/g,"$1");
-        o=o.replace(/(^|[\r\n])\s*type\s+[A-Za-z_]\w*\s*(<[^>\r\n]*>)?\s*=[^\r\n]*/g,"$1");
-        o=o.replace(/\bfor\b([^\r\n]*?)\bin\b\s+([A-Za-z_][\w.\[\]]*?)\s+do\b/g,function(m,vars,iter){ if(/[()]/.test(iter))return m; return "for"+vars+"in pairs("+iter+") do"; });
-        return o;
-      }
-
       function rawBundle(src) {
         return src;
       }
@@ -2957,7 +2782,7 @@ end</textarea>
           const newSrc = rep.rewritten;
           if(!rep.changed || newSrc.trim()===src.trim()){
             window.__luripeAssisted=null;
-            setStatus("AI Assist: nothing to change - VM coverage already maximal.","ok");
+            setStatus("AI Assist: nothing to change "" VM coverage already maximal.","ok");
             if(btn) btn.disabled=false; return;
           }
           // VERIFY: must parse AND not increase spills. Prefer fewer spills.
@@ -2966,7 +2791,7 @@ end</textarea>
             newSpill!==null && (baseSpill===null || newSpill<=baseSpill);
           if(!acceptable){
             window.__luripeAssisted=null;
-            setStatus("AI Assist: rewrite rejected (did not improve VM coverage) - original kept.","err");
+            setStatus("AI Assist: rewrite rejected (did not improve VM coverage) "" original kept.","err");
             if(btn) btn.disabled=false; return;
           }
           window.__luripeAssisted = newSrc;
@@ -2976,11 +2801,11 @@ end</textarea>
           aiPanelShow('<div style="background:var(--panel);border:1px solid var(--border-strong);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--text)">' +
             '<b>AI Assist applied.</b> VM coverage: <b>'+esc(before)+'</b> &rarr; <b>'+esc(after)+'</b>. ' +
             'The rewritten script will be used on the next Obfuscate (VM mode).'+notes+'</div>');
-          setStatus("AI Assist ready - press Obfuscate to VM the improved script.","ok");
+          setStatus("AI Assist ready "" press Obfuscate to VM the improved script.","ok");
         } catch(e){
           window.__luripeAssisted=null;
           aiPanelShow('<div style="background:var(--panel);border:1px solid var(--err);border-radius:10px;padding:14px 18px;color:var(--err);font-size:13px">AI Assist error: '+esc(e.message)+'</div>');
-          setStatus("AI Assist failed - original kept.","err");
+          setStatus("AI Assist failed "" original kept.","err");
         } finally { if(btn) btn.disabled=false; }
       }
 
@@ -3458,7 +3283,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native" || m === "hybrid") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -3490,30 +3315,6 @@ end</textarea>
         const dbgEl = document.getElementById("dbg");
         const DBG = !!(dbgEl && dbgEl.checked);
         window.__luripeVMDebug = DBG;
-        if (mode === "hybrid") {
-          try {
-            setStatus("Obfuscating (Hybrid: AST + VM on marked functions)...");
-            outEl.value = hybridBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Hybrid mode - downloaded. Marked functions (LPH_VIRTUALIZE) are VM'd; the rest is Native AST. Full compatibility + strong protection on sensitive parts.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Hybrid failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
-        if (mode === "native") {
-          try {
-            setStatus("Obfuscating (Native AST mode)...");
-            outEl.value = astBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Native mode - downloaded. Real Lua (no VM, no loadstring-source): all OOP/UI/callbacks run; strings encrypted, numbers/flow obscured.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Native failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
         if (mode === "raw") {
           outEl.value = rawBundle(src);
           downloadOutput(outEl.value);
@@ -4050,7 +3851,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native" || m === "hybrid") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -4082,30 +3883,6 @@ end</textarea>
         const dbgEl = document.getElementById("dbg");
         const DBG = !!(dbgEl && dbgEl.checked);
         window.__luripeVMDebug = DBG;
-        if (mode === "hybrid") {
-          try {
-            setStatus("Obfuscating (Hybrid: AST + VM on marked functions)...");
-            outEl.value = hybridBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Hybrid mode - downloaded. Marked functions (LPH_VIRTUALIZE) are VM'd; the rest is Native AST. Full compatibility + strong protection on sensitive parts.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Hybrid failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
-        if (mode === "native") {
-          try {
-            setStatus("Obfuscating (Native AST mode)...");
-            outEl.value = astBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Native mode - downloaded. Real Lua (no VM, no loadstring-source): all OOP/UI/callbacks run; strings encrypted, numbers/flow obscured.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Native failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
         if (mode === "raw") {
           outEl.value = rawBundle(src);
           downloadOutput(outEl.value);
@@ -4642,7 +4419,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native" || m === "hybrid") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -4674,30 +4451,6 @@ end</textarea>
         const dbgEl = document.getElementById("dbg");
         const DBG = !!(dbgEl && dbgEl.checked);
         window.__luripeVMDebug = DBG;
-        if (mode === "hybrid") {
-          try {
-            setStatus("Obfuscating (Hybrid: AST + VM on marked functions)...");
-            outEl.value = hybridBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Hybrid mode - downloaded. Marked functions (LPH_VIRTUALIZE) are VM'd; the rest is Native AST. Full compatibility + strong protection on sensitive parts.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Hybrid failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
-        if (mode === "native") {
-          try {
-            setStatus("Obfuscating (Native AST mode)...");
-            outEl.value = astBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Native mode - downloaded. Real Lua (no VM, no loadstring-source): all OOP/UI/callbacks run; strings encrypted, numbers/flow obscured.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Native failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
         if (mode === "raw") {
           outEl.value = rawBundle(src);
           downloadOutput(outEl.value);
@@ -5234,7 +4987,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native" || m === "hybrid") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -5266,30 +5019,6 @@ end</textarea>
         const dbgEl = document.getElementById("dbg");
         const DBG = !!(dbgEl && dbgEl.checked);
         window.__luripeVMDebug = DBG;
-        if (mode === "hybrid") {
-          try {
-            setStatus("Obfuscating (Hybrid: AST + VM on marked functions)...");
-            outEl.value = hybridBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Hybrid mode - downloaded. Marked functions (LPH_VIRTUALIZE) are VM'd; the rest is Native AST. Full compatibility + strong protection on sensitive parts.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Hybrid failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
-        if (mode === "native") {
-          try {
-            setStatus("Obfuscating (Native AST mode)...");
-            outEl.value = astBundle(src);
-            downloadOutput(outEl.value);
-            setStatus("Protected in Native mode - downloaded. Real Lua (no VM, no loadstring-source): all OOP/UI/callbacks run; strings encrypted, numbers/flow obscured.", "ok");
-          } catch (e) {
-            try { outEl.value = wrapperBundle(src, DBG); downloadOutput(outEl.value); setStatus("Native failed (" + e.message + ") - used Wrapper instead, downloaded.", "ok"); }
-            catch (e2) { outEl.value = ""; setStatus(e.message, "err"); }
-          }
-          return;
-        }
         if (mode === "raw") {
           outEl.value = rawBundle(src);
           downloadOutput(outEl.value);
