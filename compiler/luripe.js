@@ -2036,21 +2036,24 @@ function needsWrapper(source) {
 }
 
 // protect(): the single entry point. mode "auto" is the safe default.
+// NOTE: run() is the VM bundler â€” it calls compile() internally and returns the
+// finished protected Lua STRING. compile() alone returns raw {OP,bytecode,...},
+// so protect() must go through run(), never compile() directly.
 function protect(source, opts) {
   opts = opts || {};
   const mode = opts.mode || "auto";
   if (mode === "wrapper") return { mode: "wrapper", output: wrapperBundle(source, !!opts.debug) };
   if (mode === "vm") {
     // Force VM; caller explicitly accepts the risk.
-    return { mode: "vm", output: compile(source) };
+    return { mode: "vm", output: run(source) };
   }
   // AUTO: static pre-check first (fast, catches executor/Roblox scripts).
   if (needsWrapper(source)) {
     return { mode: "wrapper", reason: "vm-unsafe-construct", output: wrapperBundle(source, !!opts.debug) };
   }
-  // Pure-logic candidate: try VM, but if compilation throws, fall back to wrapper.
+  // Pure-logic candidate: try VM, but if bundling throws, fall back to wrapper.
   try {
-    const vmOut = compile(source);
+    const vmOut = run(source);
     return { mode: "vm", output: vmOut };
   } catch (e) {
     return { mode: "wrapper", reason: "vm-compile-failed: " + (e && e.message), output: wrapperBundle(source, !!opts.debug) };
