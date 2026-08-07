@@ -2836,218 +2836,218 @@ function luraphBundle(OP, bytecode, checksum, constPool, spilledFns, usedOps) {
         "return (function() " +
         f.src.replace(/^return /, "return ") +
         " end)()";
-    }
-    const body =
-      f.src.trim().slice(0, 8) === "function" ||
-      f.src.trim().slice(0, 6) === "return"
-        ? f.src
-        : "return " + f.src;
-    // encode body -> number stream (rolling cipher + round key)
-    const bytes = [];
-    for (const ch of body) {
-      let cp = ch.codePointAt(0);
-      if (cp < 0x80) bytes.push(cp);
-      else if (cp < 0x800) {
-        bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
-      } else if (cp < 0x10000) {
-        bytes.push(
-          0xe0 | (cp >> 12),
-          0x80 | ((cp >> 6) & 0x3f),
-          0x80 | (cp & 0x3f),
-        );
-      } else {
-        bytes.push(
-          0xf0 | (cp >> 18),
-          0x80 | ((cp >> 12) & 0x3f),
-          0x80 | ((cp >> 6) & 0x3f),
-          0x80 | (cp & 0x3f),
-        );
+      const body =
+        f.src.trim().slice(0, 8) === "function" ||
+        f.src.trim().slice(0, 6) === "return"
+          ? f.src
+          : "return " + f.src;
+      // encode body -> number stream (rolling cipher + round key)
+      const bytes = [];
+      for (const ch of body) {
+        let cp = ch.codePointAt(0);
+        if (cp < 0x80) bytes.push(cp);
+        else if (cp < 0x800) {
+          bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+        } else if (cp < 0x10000) {
+          bytes.push(
+            0xe0 | (cp >> 12),
+            0x80 | ((cp >> 6) & 0x3f),
+            0x80 | (cp & 0x3f),
+          );
+        } else {
+          bytes.push(
+            0xf0 | (cp >> 18),
+            0x80 | ((cp >> 12) & 0x3f),
+            0x80 | ((cp >> 6) & 0x3f),
+            0x80 | (cp & 0x3f),
+          );
+        }
       }
+      const OFFSET = 7,
+        PRIME = 167,
+        CMASK = 0xff;
+      const seed = 1 + Math.floor(Math.random() * 254);
+      const R = 1 + Math.floor(Math.random() * 254);
+      const enc = [];
+      let prev = seed;
+      for (let i = 0; i < bytes.length; i++) {
+        const ks = (seed ^ ((i + 1) * PRIME) ^ prev) & CMASK;
+        let e = ((bytes[i] + OFFSET) & CMASK) ^ ks;
+        const e2 = e ^ R;
+        enc.push(e2);
+        prev = e;
+      }
+      const numStr = enc.join(",");
+      const chunk =
+        "do local _s=" +
+        DEC +
+        '("' +
+        numStr +
+        '",' +
+        seed +
+        "," +
+        R +
+        ");" +
+        "local _f=" +
+        LSV +
+        "(_s);" +
+        "if setfenv and _f then pcall(setfenv,_f," +
+        GV +
+        ") end;" +
+        GV +
+        "[" +
+        JSON.stringify(f.sym) +
+        "]=_f and _f() end;";
+      spillPrelude += chunk;
     }
-    const OFFSET = 7,
-      PRIME = 167,
-      CMASK = 0xff;
-    const seed = 1 + Math.floor(Math.random() * 254);
-    const R = 1 + Math.floor(Math.random() * 254);
-    const enc = [];
-    let prev = seed;
-    for (let i = 0; i < bytes.length; i++) {
-      const ks = (seed ^ ((i + 1) * PRIME) ^ prev) & CMASK;
-      let e = ((bytes[i] + OFFSET) & CMASK) ^ ks;
-      const e2 = e ^ R;
-      enc.push(e2);
-      prev = e;
-    }
-    const numStr = enc.join(",");
-    const chunk =
-      "do local _s=" +
-      DEC +
-      '("' +
-      numStr +
-      '",' +
-      seed +
-      "," +
-      R +
-      ");" +
-      "local _f=" +
-      LSV +
-      "(_s);" +
-      "if setfenv and _f then pcall(setfenv,_f," +
-      GV +
-      ") end;" +
-      GV +
-      "[" +
-      JSON.stringify(f.sym) +
-      "]=_f and _f() end;";
-    spillPrelude += chunk;
   }
+  return (
+    spillPrelude +
+    "return (function()" +
+    junk(4) +
+    opmapBuild +
+    junk(3) +
+    "local " +
+    SM +
+    "=0;for _,v in pairs(" +
+    M +
+    ")do " +
+    SM +
+    "=bit32.band(" +
+    SM +
+    "+v,0xFFFFFFFF) end;" +
+    "local " +
+    MK +
+    "1=bit32.band(bit32.bxor(" +
+    SM +
+    ",0x9e3779b1)+" +
+    seed +
+    ",0xFFFFFFFF);" +
+    "local " +
+    MK +
+    "2=bit32.band(bit32.bxor(" +
+    SM +
+    "*2654435761,bit32.lshift(" +
+    seed +
+    ",1)),0xFFFFFFFF);" +
+    junk(3) +
+    "local " +
+    B +
+    '="' +
+    blob +
+    '";' +
+    "local " +
+    C +
+    "=" +
+    constLua +
+    ";" +
+    junk(2) +
+    (DUAL_VM ? "local " + S1V + "=" + S1 + ";" : "") +
+    "local function " +
+    D +
+    '(s)local r={}for m in s:gmatch("[^,]+")do local x=bit32.band(tonumber(m),0xFFFFFFFF);' +
+    (DUAL_VM
+      ? "x=bit32.band(bit32.bxor(bit32.band(x-" +
+        S1V +
+        ",0xFFFFFFFF)," +
+        S1V +
+        "),0xFFFFFFFF);"
+      : "") +
+    "x=bit32.bxor(x,bit32.rshift(" +
+    MK +
+    "1,3));x=bit32.band(x-" +
+    MK +
+    "2,0xFFFFFFFF);x=bit32.bxor(x," +
+    MK +
+    "1);r[#r+1]=bit32.band(x,0xFFFFFFFF) end return r end;" +
+    "local " +
+    N +
+    "=" +
+    D +
+    "(" +
+    B +
+    ");" +
+    junk(3) +
+    "local " +
+    P +
+    "={}local " +
+    I +
+    "=1;while " +
+    I +
+    "<=#" +
+    N +
+    " do local o=" +
+    N +
+    "[" +
+    I +
+    "];" +
+    I +
+    "=" +
+    I +
+    "+1;local t=" +
+    N +
+    "[" +
+    I +
+    "];" +
+    I +
+    "=" +
+    I +
+    "+1;" +
+    "if t==0 then " +
+    P +
+    "[#" +
+    P +
+    "+1]={o} elseif t==1 then " +
+    P +
+    "[#" +
+    P +
+    "+1]={o," +
+    N +
+    "[" +
+    I +
+    "]};" +
+    I +
+    "=" +
+    I +
+    "+1 else local l=" +
+    N +
+    "[" +
+    I +
+    "];" +
+    I +
+    "=" +
+    I +
+    "+1;local a={}for k=1,l do a[k]=" +
+    N +
+    "[" +
+    I +
+    "];" +
+    I +
+    "=" +
+    I +
+    "+1 end;" +
+    P +
+    "[#" +
+    P +
+    "+1]={o,a} end end;" +
+    "local " +
+    VM +
+    "=(function() " +
+    vmMin +
+    " end)();" +
+    VM +
+    ".run(" +
+    P +
+    "," +
+    M +
+    "," +
+    checksum +
+    "," +
+    C +
+    ")" +
+    " end)()"
+  );
 }
-return (
-  spillPrelude +
-  "return (function()" +
-  junk(4) +
-  opmapBuild +
-  junk(3) +
-  "local " +
-  SM +
-  "=0;for _,v in pairs(" +
-  M +
-  ")do " +
-  SM +
-  "=bit32.band(" +
-  SM +
-  "+v,0xFFFFFFFF) end;" +
-  "local " +
-  MK +
-  "1=bit32.band(bit32.bxor(" +
-  SM +
-  ",0x9e3779b1)+" +
-  seed +
-  ",0xFFFFFFFF);" +
-  "local " +
-  MK +
-  "2=bit32.band(bit32.bxor(" +
-  SM +
-  "*2654435761,bit32.lshift(" +
-  seed +
-  ",1)),0xFFFFFFFF);" +
-  junk(3) +
-  "local " +
-  B +
-  '="' +
-  blob +
-  '";' +
-  "local " +
-  C +
-  "=" +
-  constLua +
-  ";" +
-  junk(2) +
-  (DUAL_VM ? "local " + S1V + "=" + S1 + ";" : "") +
-  "local function " +
-  D +
-  '(s)local r={}for m in s:gmatch("[^,]+")do local x=bit32.band(tonumber(m),0xFFFFFFFF);' +
-  (DUAL_VM
-    ? "x=bit32.band(bit32.bxor(bit32.band(x-" +
-      S1V +
-      ",0xFFFFFFFF)," +
-      S1V +
-      "),0xFFFFFFFF);"
-    : "") +
-  "x=bit32.bxor(x,bit32.rshift(" +
-  MK +
-  "1,3));x=bit32.band(x-" +
-  MK +
-  "2,0xFFFFFFFF);x=bit32.bxor(x," +
-  MK +
-  "1);r[#r+1]=bit32.band(x,0xFFFFFFFF) end return r end;" +
-  "local " +
-  N +
-  "=" +
-  D +
-  "(" +
-  B +
-  ");" +
-  junk(3) +
-  "local " +
-  P +
-  "={}local " +
-  I +
-  "=1;while " +
-  I +
-  "<=#" +
-  N +
-  " do local o=" +
-  N +
-  "[" +
-  I +
-  "];" +
-  I +
-  "=" +
-  I +
-  "+1;local t=" +
-  N +
-  "[" +
-  I +
-  "];" +
-  I +
-  "=" +
-  I +
-  "+1;" +
-  "if t==0 then " +
-  P +
-  "[#" +
-  P +
-  "+1]={o} elseif t==1 then " +
-  P +
-  "[#" +
-  P +
-  "+1]={o," +
-  N +
-  "[" +
-  I +
-  "]};" +
-  I +
-  "=" +
-  I +
-  "+1 else local l=" +
-  N +
-  "[" +
-  I +
-  "];" +
-  I +
-  "=" +
-  I +
-  "+1;local a={}for k=1,l do a[k]=" +
-  N +
-  "[" +
-  I +
-  "];" +
-  I +
-  "=" +
-  I +
-  "+1 end;" +
-  P +
-  "[#" +
-  P +
-  "+1]={o,a} end end;" +
-  "local " +
-  VM +
-  "=(function() " +
-  vmMin +
-  " end)();" +
-  VM +
-  ".run(" +
-  P +
-  "," +
-  M +
-  "," +
-  checksum +
-  "," +
-  C +
-  ")" +
-  " end)()"
-);
 
 function setStatus(msg, cls) {
   const s = document.getElementById("status");
