@@ -2320,7 +2320,8 @@ end</textarea>
           "local " + P + "={}local " + I + "=1;while " + I + "<=#" + N + " do local o=" + N + "[" + I + "];" + I + "=" + I + "+1;local t=" + N + "[" + I + "];" + I + "=" + I + "+1;" +
           "if t==0 then " + P + "[#" + P + "+1]={o} elseif t==1 then " + P + "[#" + P + "+1]={o," + N + "[" + I + "]};" + I + "=" + I + "+1 else local l=" + N + "[" + I + "];" + I + "=" + I + "+1;local a={}for k=1,l do a[k]=" + N + "[" + I + "];" + I + "=" + I + "+1 end;" + P + "[#" + P + "+1]={o,a} end end;" +
           "local " + VM + "=(function() " + vmMin + " end)();" +
-          VM + ".run(" + P + "," + M + "," + checksum + "," + C + ")" +
+          "local __lrp_ok,__lrp_err=pcall(function() return " + VM + ".run(" + P + "," + M + "," + checksum + "," + C + ") end);" +
+          "if not __lrp_ok then warn('Luripe VM runtime error: '..tostring(__lrp_err)); if debug and debug.traceback then warn(debug.traceback()) end end" +
           " end)()"
         );
       }
@@ -2482,6 +2483,9 @@ end</textarea>
           J(2) +
           anti +
           (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          // Roblox in-game blocks loadstring; only executors expose it. If LS is
+          // nil here, tell the user plainly instead of dying silently.
+          "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
           "local " + FN + ",_err=" + LS + "(" + D + ");" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
@@ -3146,6 +3150,9 @@ end</textarea>
           J(2) +
           anti +
           (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          // Roblox in-game blocks loadstring; only executors expose it. If LS is
+          // nil here, tell the user plainly instead of dying silently.
+          "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
           "local " + FN + ",_err=" + LS + "(" + D + ");" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
@@ -3701,6 +3708,9 @@ end</textarea>
           J(2) +
           anti +
           (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          // Roblox in-game blocks loadstring; only executors expose it. If LS is
+          // nil here, tell the user plainly instead of dying silently.
+          "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
           "local " + FN + ",_err=" + LS + "(" + D + ");" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
@@ -4256,6 +4266,9 @@ end</textarea>
           J(2) +
           anti +
           (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          // Roblox in-game blocks loadstring; only executors expose it. If LS is
+          // nil here, tell the user plainly instead of dying silently.
+          "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
           "local " + FN + ",_err=" + LS + "(" + D + ");" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
@@ -4811,6 +4824,9 @@ end</textarea>
           J(2) +
           anti +
           (DBG ? "warn('[Luripe] decoded '..tostring(#" + D + ")..' chars, canary OK');" : "") +
+          // Roblox in-game blocks loadstring; only executors expose it. If LS is
+          // nil here, tell the user plainly instead of dying silently.
+          "if type(" + LS + ")~='function' then warn('Luripe: loadstring is unavailable in this environment (Roblox in-game blocks it; use an executor, or enable LoadStringEnabled in Studio for server scripts).') return end;" +
           "local " + FN + ",_err=" + LS + "(" + D + ");" +
           "if not " + FN + " then warn('Luripe: could not compile decoded source - '..tostring(_err)) return end;" +
           // Bind chunk to the real global env so print/warn/game/etc are visible on all executors.
