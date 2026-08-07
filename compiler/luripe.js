@@ -13,10 +13,18 @@
 const luaparse = require("luaparse");
 
 // --- Browser-global stubs so UI-oriented engine code loads cleanly under Node ---
-const window = { __luripeVMDebug: false };
+const localStorage = {
+  _s: {},
+  getItem(k){ return Object.prototype.hasOwnProperty.call(this._s, k) ? this._s[k] : null; },
+  setItem(k, v){ this._s[k] = String(v); },
+  removeItem(k){ delete this._s[k]; },
+};
+const window = { __luripeVMDebug: false, localStorage };
+const navigator = { clipboard: { writeText(){ return Promise.resolve(); } }, userAgent: "node" };
 const document = {
-  getElementById: () => ({ textContent:"", className:"", value:"", checked:false, addEventListener(){} }),
-  addEventListener(){}, querySelector: () => null, querySelectorAll: () => [],
+  getElementById: () => ({ textContent:"", className:"", value:"", checked:false, style:{}, classList:{ add(){}, remove(){}, toggle(){} }, addEventListener(){}, appendChild(){}, setAttribute(){} }),
+  createElement: () => ({ style:{}, classList:{ add(){}, remove(){} }, addEventListener(){}, appendChild(){}, setAttribute(){} }),
+  addEventListener(){}, querySelector: () => null, querySelectorAll: () => [], body: { appendChild(){} },
 };
 
       // Mutating + flattened VM: generated fresh per build.
