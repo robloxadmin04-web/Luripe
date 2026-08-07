@@ -1867,8 +1867,11 @@ function compile(source) {
           // src is 'function(params) BODY end' -> capture params + body via a thin wrapper.
           // We produce: return (function() <decls>; local __f=<src>; return function(...)
           //   <refresh decls from bridge>; local r={__f(...)}; <writes>; return (table.unpack or unpack)(r) end end)()
+          const bridgeResolve =
+            "local __LRP_BRIDGE=((getgenv and getgenv()) or (getfenv and getfenv()) or _G).__LRP_BRIDGE or {};";
           const wrapped =
             "return (function() " +
+            bridgeResolve +
             decls +
             "; local __f=" +
             src +
@@ -2778,7 +2781,7 @@ function luraphBundle(OP, bytecode, checksum, constPool, spilledFns, usedOps) {
     // PARTIAL-VM bridge table: shared between the VM (BRIDGESET) and spilled
     // callbacks. Created in the real global env so both sides see one table.
     spillPrelude +=
-      "do local G=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;G.__LRP_BRIDGE=G.__LRP_BRIDGE or {};local __LRP_BRIDGE=G.__LRP_BRIDGE end;";
+      "do local G=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;G.__LRP_BRIDGE=G.__LRP_BRIDGE or {} end;";
     // ENCRYPTED SPILL: each spilled function source is encoded as a number
     // stream (rolling cipher + per-fn round key) and decoded at runtime
     // before loadstring. This removes ALL plain source from the spill zone
