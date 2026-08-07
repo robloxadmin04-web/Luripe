@@ -762,7 +762,8 @@ end</textarea>
           // encoder cannot represent a NESTED array, so captures are inlined with
           // a leading count nc. (Fixes "length of a number" from #caps on garbage.)
           CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do local c=a[2+i];if c>=0 then ups[i-1]="+F+"[c] else ups[i-1]=("+N.upvals+" and "+N.upvals+"[-c-1]) end end;"+P+"({__cl=true,addr=addr,ups=ups})",
-          CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
+          CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+
+                     "if clo==nil then error('Luripe: attempted to call a nil closure value') end;"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
           GETGLOBAL: "local nm="+N.decodeString+"(a);local _v=nil;"+
                      "local _gg=(getgenv and getgenv());if _gg then _v=_gg[nm] end;"+
                      "if _v==nil then local _ok,_re=pcall(function() return getrenv and getrenv() end);if _ok and _re then _v=_re[nm] end end;"+
@@ -791,12 +792,14 @@ end</textarea>
                        F+"=cf;"+N.upvals+"=fn.ups;"+CT+"."+CF.ip+"=fn.addr;"+CT+"."+CF.jumped+"=true "+
                      "else "+P+"(fn(obj,(table.unpack or unpack)(args,1,ac))) end",
           CALLR:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+
+                     "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);if _br then fn=_br[args[1]] end end;"+
                      "if type(fn)=='table' and fn.__cl then "+
                        "local cf={};for k=1,ac do cf[k-1]=args[k] end;"+
                        N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
                        F+"=cf;"+N.upvals+"=fn.ups;"+CT+"."+CF.ip+"=fn.addr;"+CT+"."+CF.jumped+"=true "+
                      "else "+P+"(fn((table.unpack or unpack)(args,1,ac))) end",
           RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+
+                     "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);if _br then fn=_br[args[1]] end end;"+
                      "if type(fn)=='table' and fn.__cl then "+
                        "local cf={};for k=1,ac do cf[k-1]=args[k] end;"+
                        N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
@@ -1310,7 +1313,7 @@ end</textarea>
         // SELFCALL path (which already exists in the VM).
         const spillNamed = (qname, luaSrc) => {
           const gsym = '__lrp_spill_' + (__spillId++);
-          spilledFns.push({ sym: gsym, src: luaSrc });
+          spilledFns.push({ sym: gsym, src: luaSrc, name: qname });
           // Store the spilled closure into a local slot AND register it as a
           // closure-backed function so call sites emit CALLC (load slot, call the
           // value) instead of CALL [undefined addr]. Without the closureSlot
@@ -2040,6 +2043,7 @@ end</textarea>
               // Spill: keep the ORIGINAL 'function name(...) ... end' text, then
               // expose it under the same name so VM calls resolve at runtime.
               const gsym = spillNamed(__qnameFD, src);
+              spilledFns[spilledFns.length-1].name = __qnameFD;
               // For qualified/method decls (T.f / T:m) also assign into the
               // global table at runtime so existing SELFCALL/CALLR reach it.
               if (__qnameFD.indexOf(".") !== -1) {
@@ -2332,6 +2336,13 @@ end</textarea>
               "local __rf=_f and _f();" +
               "local __gg=(getgenv and getgenv());if __gg then __gg[" + JSON.stringify(f.sym) + "]=__rf end;" +
               "_G[" + JSON.stringify(f.sym) + "]=__rf;" +
+              // Mirror into the shared bridge under BOTH the spill symbol AND, when
+              // this island is a named function, its plain/base name so cross-island
+              // bare-name and method lookups resolve.
+              "do local _G2=(getgenv and getgenv()) or _G;_G2.__LRP_BRIDGE=_G2.__LRP_BRIDGE or {};_G2.__LRP_BRIDGE[" + JSON.stringify(f.sym) + "]=__rf;" +
+              (f.name ? ("_G2.__LRP_BRIDGE[" + JSON.stringify(f.name) + "]=__rf;" +
+                        (f.name.indexOf(".")!==-1 ? "_G2.__LRP_BRIDGE[" + JSON.stringify(f.name.split(".").pop()) + "]=__rf;" : "")) : "") +
+              "end;" +
               "if getfenv then local __fe=getfenv();if __fe then __fe[" + JSON.stringify(f.sym) + "]=__rf end end end;";
             spillPrelude += chunk;
           }
