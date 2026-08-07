@@ -763,7 +763,14 @@ end</textarea>
           // a leading count nc. (Fixes "length of a number" from #caps on garbage.)
           CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do local c=a[2+i];if c>=0 then ups[i-1]="+F+"[c] else ups[i-1]=("+N.upvals+" and "+N.upvals+"[-c-1]) end end;"+P+"({__cl=true,addr=addr,ups=ups})",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
-          GETGLOBAL: "local nm="+N.decodeString+"(a);local _gg=(getgenv and getgenv());local _v=(_gg and _gg[nm]);if _v==nil then _v=((_ENV or (getfenv and getfenv()) or _G) or {})[nm] end;"+P+"(_v)",
+          GETGLOBAL: "local nm="+N.decodeString+"(a);local _v=nil;"+
+                     "local _gg=(getgenv and getgenv());if _gg then _v=_gg[nm] end;"+
+                     "if _v==nil then local _ok,_re=pcall(function() return getrenv and getrenv() end);if _ok and _re then _v=_re[nm] end end;"+
+                     "if _v==nil then _v=(_ENV or {})[nm] end;"+
+                     "if _v==nil and getfenv then local _ok2,_fe=pcall(getfenv,0);if _ok2 and _fe then _v=_fe[nm] end end;"+
+                     "if _v==nil and getfenv then local _ok3,_fe1=pcall(getfenv,1);if _ok3 and _fe1 then _v=_fe1[nm] end end;"+
+                     "if _v==nil then _v=_G[nm] end;"+
+                     P+"(_v)",
           // PARTIAL-VM bridge: publish a VM local into the shared bridge table so a
           // spilled callback (real Lua closure) can read/update it across the boundary.
           BRIDGESET: "local nm="+N.decodeString+"(a);local val="+O+"();local G=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;G.__LRP_BRIDGE=G.__LRP_BRIDGE or {};G.__LRP_BRIDGE[nm]=val",
