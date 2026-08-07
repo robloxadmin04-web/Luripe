@@ -2881,6 +2881,7 @@ function luraphBundle(OP, bytecode, checksum, constPool, spilledFns, usedOps) {
   }
   return (
     spillPrelude +
+    "return (function()" +
     junk(4) +
     opmapBuild +
     junk(3) +
@@ -3021,7 +3022,8 @@ function luraphBundle(OP, bytecode, checksum, constPool, spilledFns, usedOps) {
     checksum +
     "," +
     C +
-    ")"
+    ")" +
+    " end)()"
   );
 }
 
