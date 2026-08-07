@@ -755,7 +755,7 @@ end</textarea>
           // Closure arg is FLAT: {addr, nc, cap1, cap2, ...}. The number-stream
           // encoder cannot represent a NESTED array, so captures are inlined with
           // a leading count nc. (Fixes "length of a number" from #caps on garbage.)
-          CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do ups[i-1]="+F+"[a[2+i]] end;"+P+"({__cl=true,addr=addr,ups=ups})",
+          CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do local c=a[2+i];if c>=0 then ups[i-1]="+F+"[c] else ups[i-1]=("+N.upvals+" and "+N.upvals+"[-c-1]) end end;"+P+"({__cl=true,addr=addr,ups=ups})",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
           GETGLOBAL: "local nm="+N.decodeString+"(a);"+P+"((_ENV or getfenv and getfenv() or _G)[nm])",
           SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+
@@ -1409,30 +1409,36 @@ end</textarea>
           const used = new Set();
           (function collect(n){ if(!n||typeof n!=="object")return; if(Array.isArray(n)){n.forEach(collect);return;} if(n.type==="Identifier")used.add(n.name); for(const k in n){if(k==="type")continue;collect(n[k]);} })(node.body);
           const outer = scope;
-          const captures = [];
+          const captures = [];          // frame slots captured from outer locals
+          const upCaptures = [];        // names captured from outer's OWN upvalues
+          const capNames = [];          // parallel name list for slot captures
           for (const nm of used) {
             if (functions[nm]) continue;
             if (outer[nm] !== undefined && typeof outer[nm] === "number") {
               if (!outer.__cells) outer.__cells = new Set();
               outer.__cells.add(outer[nm]);
               captures.push(outer[nm]);
+              capNames.push(nm);
+            } else if (outer.__upvals && outer.__upvals[nm] !== undefined) {
+              // transitive: forward the enclosing closure's upvalue down one level
+              upCaptures.push({ name: nm, up: outer.__upvals[nm] });
             }
           }
-          // FLAT closure arg: [addr, nc, cap1, cap2, ...] (no nested array).
-          const closureInstr = emit(OP.CLOSURE, [0, captures.length].concat(captures.slice()));
+          // FLAT closure arg: [addr, nc, cap1..capN]. cap>=0 -> frame slot of
+          // outer; cap<0 -> outer upvalue index encoded as -(idx+1) (transitive).
+          const capList = captures.slice().concat(upCaptures.map((u) => -(u.up + 1)));
+          const closureInstr = emit(OP.CLOSURE, [0, capList.length].concat(capList));
           const jmpOver = emit(OP.JMP, 0);
           const bodyAddr = here();
-          bytecode[closureInstr].arg = [bodyAddr, captures.length].concat(captures.slice());
+          bytecode[closureInstr].arg = [bodyAddr, capList.length].concat(capList);
           const savedScope = scope, savedNextSlot = nextSlot, savedVararg = varargSlot;
           scope = {}; nextSlot = 0; varargSlot = 0;
           scope.__upvals = {};
-          captures.forEach((slot, i) => { });
-          // map captured names to upvalue indices in the same order
+          // Inner upvalue indices must follow the SAME order as capList above:
+          // first the slot captures (capNames), then the transitive upCaptures.
           let ui = 0;
-          for (const nm of used) {
-            if (functions[nm]) continue;
-            if (outer[nm] !== undefined && typeof outer[nm] === "number") { scope.__upvals[nm] = ui++; }
-          }
+          for (const nm of capNames) { scope.__upvals[nm] = ui++; }
+          for (const u of upCaptures) { scope.__upvals[u.name] = ui++; }
           for (const p of node.parameters) {
             if (p.type === "VarargLiteral") varargSlot = nextSlot; else slotFor(p.name);
           }
@@ -1703,7 +1709,13 @@ end</textarea>
             emit(OP.LOAD, varSlot); emit(OP.LOAD, limitSlot); emit(OP.LE);
             const jz = emit(OP.JZ, 0);
             loopStack.push({ breaks: [] });
+            // Per-iteration binding: if a nested closure captures the loop var,
+            // give this iteration its OWN cell (load current value -> fresh {v}).
+            const __nfCap = scope.__nestedNames && scope.__nestedNames.has(node.variable.name);
+            if (__nfCap) { if(!scope.__cells) scope.__cells=new Set(); scope.__cells.add(varSlot); emit(OP.LOAD, varSlot); emit(OP.NEWCELL, varSlot); }
             compileBlock(node.body);
+            // Read back via cell (value may have changed) before the step add.
+            if (__nfCap) { emit(OP.LOADCELL, varSlot); const __t=nextSlot++; emit(OP.STORE, __t); scope.__cells.delete(varSlot); emit(OP.LOAD, __t); emit(OP.STORE, varSlot); }
             emit(OP.LOAD, varSlot); emit(OP.LOAD, stepSlot); emit(OP.ADD); emit(OP.STORE, varSlot);
             emit(OP.JMP, top);
             patch(jz, here());
