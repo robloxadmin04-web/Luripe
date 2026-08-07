@@ -2035,25 +2035,31 @@ function needsWrapper(source) {
   return false;
 }
 
+// vmProtect(): headless VM pipeline. run() is a BROWSER-UI function (reads a DOM
+// textarea, writes to a DOM element, triggers a download) and returns nothing â€”
+// unusable under Node. The real string-producing path inside run() is
+// compile() -> bundle(); we call those two directly here.
+function vmProtect(source) {
+  const { OP, bytecode, constPool, spilledFns, usedOps } = compile(source);
+  return bundle(OP, bytecode, constPool, spilledFns, usedOps);
+}
+
 // protect(): the single entry point. mode "auto" is the safe default.
-// NOTE: run() is the VM bundler â€” it calls compile() internally and returns the
-// finished protected Lua STRING. compile() alone returns raw {OP,bytecode,...},
-// so protect() must go through run(), never compile() directly.
 function protect(source, opts) {
   opts = opts || {};
   const mode = opts.mode || "auto";
   if (mode === "wrapper") return { mode: "wrapper", output: wrapperBundle(source, !!opts.debug) };
   if (mode === "vm") {
     // Force VM; caller explicitly accepts the risk.
-    return { mode: "vm", output: run(source) };
+    return { mode: "vm", output: vmProtect(source) };
   }
   // AUTO: static pre-check first (fast, catches executor/Roblox scripts).
   if (needsWrapper(source)) {
     return { mode: "wrapper", reason: "vm-unsafe-construct", output: wrapperBundle(source, !!opts.debug) };
   }
-  // Pure-logic candidate: try VM, but if bundling throws, fall back to wrapper.
+  // Pure-logic candidate: try VM, but if compile/bundle throws, fall back to wrapper.
   try {
-    const vmOut = run(source);
+    const vmOut = vmProtect(source);
     return { mode: "vm", output: vmOut };
   } catch (e) {
     return { mode: "wrapper", reason: "vm-compile-failed: " + (e && e.message), output: wrapperBundle(source, !!opts.debug) };
