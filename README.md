@@ -1,100 +1,65 @@
-# Luripe
+# Luripe - Luau Obfuscator
 
-A Luau/Lua VM obfuscator that runs entirely in the browser — no server, no install.
+Client-side Luau/Lua obfuscator with two protection modes and **automatic safe routing**.
 
-Luripe takes readable Lua source code and turns it into a protected script: the
-original code is compiled down to a **custom, randomized instruction set** and
-shipped alongside a tiny **virtual machine** that only understands that
-instruction set. An attacker can't just run a standard decompiler on it, because
-the opcodes don't match any known Lua VM.
+## Modes
 
-**Live demo:** https://luripe-4izh.onrender.com
+| Mode | How it runs | Protection | Compatibility |
+|------|-------------|------------|---------------|
+| **VM** | Compiles the script to custom bytecode run by an in-Lua interpreter | High â€” no recoverable source | Pure-logic scripts only |
+| **Wrapper** | Encrypts the whole source, decodes + `load()`s at runtime | Lighter â€” source recoverable at runtime | Universal - all Luau works |
 
----
+## Auto routing (the safe default)
 
-## The main tool
+`protect(source, { mode: "auto" })` decides the mode for you:
 
-The real, up-to-date compiler is **`compiler/luripe.js`**. (The older
-`compiler/compile.js` is a step-by-step learning version and is kept only for
-reference — see the note at the top of that file.)
+1. **Static pre-check** â€” if the script uses constructs the VM cannot safely virtualize
+   (executor globals like `getgenv`/`hookfunction`, Roblox API like `Instance.new`/`game:GetService`,
+   `coroutine.*`, `task.*`, `require`, filesystem calls), it routes straight to **wrapper mode**.
+2. **VM attempt** â€” otherwise it compiles to the VM. If compilation throws, it falls back to wrapper.
 
-### Command line
+This guarantees a broken VM build never reaches Roblox: logic-only scripts get maximum (VM)
+protection, everything else gets a build that actually runs.
 
-```
-cd compiler
+> **Note on executor / Roblox scripts.** Full-VM protection of scripts that call executor
+> functions or the Roblox API (the common case for real scripts) requires the VM to pass those
+> calls through to the real environment as encrypted global references â€” the roadmap item below.
+> Until that lands, such scripts are auto-routed to wrapper mode.
+
+## Usage
+
+```bash
 npm install luaparse
-node luripe.js input.lua            # -> input.protected.lua
-node luripe.js input.lua out.lua    # -> custom output name
+node compiler/luripe.js input.lua                    # -> input.protected.lua (auto mode)
+node compiler/luripe.js input.lua out.lua            # custom output name
+node compiler/luripe.js input.lua out.lua --mode vm  # force VM
+node compiler/luripe.js input.lua out.lua --mode wrapper
 ```
 
-### Web UI
+Programmatic:
 
-Open `site/index.html` in any browser (or use the live demo). Paste your Luau
-script, click **Obfuscate**, copy the output.
-
----
-
-## How it works
-
-```
-[ your source .lua ]
-        |
-        v
-  +-------------------------------------------+
-  |  COMPILER  (Node / luaparse)              |
-  |   1. parse   -> AST                       |
-  |   2. compile -> instructions              |
-  |   3. remap   -> custom randomized opcodes |
-  |   4. encode  -> strings & constants       |
-  |   5. serialize the bytecode blob          |
-  +-------------------------------------------+
-        |
-        v
-  +-------------------------------------------+
-  |  OUTPUT .lua                              |
-  |   - encoded bytecode blob                 |
-  |   - a VM that decodes + runs it           |
-  +-------------------------------------------+
+```js
+const { protect, needsWrapper } = require("./compiler/luripe.js");
+const res = protect(luaSource, { mode: "auto" });
+// res.mode === "vm" | "wrapper", res.output === protected Lua string
 ```
 
-## Supported Lua features
+## What the VM currently supports
 
-- Variables, arithmetic, string concatenation (`..`)
-- `if` / `elseif` / `else`, comparisons
-- `while` and numeric `for` loops
-- Generic `for ... in ipairs()/pairs()`
-- Functions, methods (`obj:method()`), `self`
-- Multiple return values, varargs (`...`)
-- Tables (`{}`, `t[k]`, `t.x`)
-- Unary operators (`-x`, `not x`, `#t`)
-- Built-in functions: `math.*`, `string.*`, `table.*`, `tostring`, `tonumber`, `type`
+Variables, arithmetic, strings & concat, `if/elseif/else`, `while`, numeric & generic `for`,
+`break`, `continue`, compound assignment (`+=`), functions, **closures & upvalues**
+(single and nested), **multiple returns**, varargs, tables, metatables/OOP (`setmetatable`,
+`__index`, method calls), `pcall`, and common builtins (`math.*`, `string.*`,
+`table.insert/remove/concat`, `tostring`, `tonumber`, `type`, `print`).
 
-> Not yet supported: closures (`function() ... end` capturing outer locals) are
-> gracefully skipped with a warning.
+Verified against tests 1â€“7 and 9 in `examples/`. One known gap: deeply chained nested-closure
+calls (`f(a)(b)(c)`) â€” see ROADMAP.
 
-## Obfuscation layers
-
-- Custom VM (virtualization)
-- Randomized opcode map per build
-- Per-string encryption keys
-- Runtime-derived decryption key (not hardcoded)
-- Opaque predicates and junk instructions
-- Scrambled variable names, minified output
-- Anti-tamper checksum
-
-## Project structure
+## Layout
 
 ```
-Luripe/
-├─ compiler/
-│   ├─ luripe.js     <- the main tool (compiler + bundler)
-│   └─ compile.js    <- legacy step-by-step learning version
-├─ vm/vm.lua         <- the runtime virtual machine
-├─ site/index.html   <- web UI (deployed to Render)
-├─ examples/         <- demo scripts
-└─ render.yaml       <- Render static-site config
+compiler/luripe.js   the engine (compile + wrapperBundle + protect/auto-routing)
+site/index.html      the browser UI (self-contained build)
+examples/            test scripts (tests 1â€“9)
+vm/                  reference VM notes
 ```
-
-## License
-
-MIT — see [LICENSE](LICENSE).
