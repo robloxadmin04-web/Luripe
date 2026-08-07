@@ -2082,8 +2082,9 @@ if (require.main === module) {
   let outFile = args[1] && !args[1].startsWith("--") ? args[1] : inFile.replace(/\.lua$/, "") + ".protected.lua";
   let mode = "auto";
   const mi = args.indexOf("--mode"); if (mi >= 0 && args[mi+1]) mode = args[mi+1];
+  const debug = args.indexOf("--debug") >= 0;
   const src = fs.readFileSync(inFile, "utf8");
-  const res = protect(src, { mode });
+  const res = protect(src, { mode, debug });
   // compile() (VM mode) may return the protected Lua as a string OR as an object
   // carrying the source under a field. Normalize to the string we write out.
   let out = res.output;
