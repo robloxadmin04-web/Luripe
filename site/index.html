@@ -742,10 +742,10 @@ end</textarea>
           CALL:     "local fa,ac=a[1],a[2];local nf={};for k=ac-1,0,-1 do nf[k]="+O+"() end;"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+N.frame+"=nf;"+N.upvals+"=nil;"+CT+"."+CF.ip+"=fa;"+CT+"."+CF.jumped+"=true",
           RETURN:   "local rv="+O+"();local cl="+N.callStack+"["+N.csTop+"];"+N.callStack+"["+N.csTop+"]=nil;"+N.csTop+"="+N.csTop+"-1;"+N.frame+"=cl.f;"+N.upvals+"=cl.u;"+P+"(rv);"+CT+"."+CF.ip+"=cl.r;"+CT+"."+CF.jumped+"=true",
           RETURNN:  "local n=a;local vs={};for k=n,1,-1 do vs[k]="+O+"() end;local cl="+N.callStack+"["+N.csTop+"];"+N.callStack+"["+N.csTop+"]=nil;"+N.csTop+"="+N.csTop+"-1;"+N.frame+"=cl.f;"+N.upvals+"=cl.u;for k=1,n do "+P+"(vs[k]) end;"+P+"(n);"+CT+"."+CF.ip+"=cl.r;"+CT+"."+CF.jumped+"=true",
-          // Bug 2 fix: assign from the top of the stack into targets right-to-left.
-          // No trailing count is consumed; a single-value producer fills the
-          // first target and leaves the rest nil, matching Lua adjust semantics.
-          STOREMULTI:"local sl=a;for k=#sl,1,-1 do "+F+"[sl[k]]="+O+"() end",
+          // Multi-value assign. RETURNN/PCALL push (values..., n) with the count
+          // on top, so consume n first, pop that many values, then fill targets
+          // left-to-right. Fewer values than targets -> rest stay nil (Lua adjust).
+          STOREMULTI:"local sl=a;local n="+O+"();local vs={};for k=n,1,-1 do vs[k]="+O+"() end;for k=1,#sl do "+F+"[sl[k]]=vs[k] end",
           VARARG:   "local st=a;local t={};local n=0;local k=st;while "+F+"[k]~=nil do n=n+1;t[n]="+F+"[k];k=k+1 end;"+P+"(t)",
           NEWCELL:  F+"[a]={v="+O+"()}",
           LOADCELL: "local cl="+F+"[a];"+P+"(cl and cl.v or nil)",
@@ -758,9 +758,24 @@ end</textarea>
           CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do ups[i-1]="+F+"[a[2+i]] end;"+P+"({__cl=true,addr=addr,ups=ups})",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
           GETGLOBAL: "local nm="+N.decodeString+"(a);"+P+"((_ENV or getfenv and getfenv() or _G)[nm])",
-          SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+P+"(fn(obj,(table.unpack or unpack)(args,1,ac)))",
-          CALLR:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+P+"(fn((table.unpack or unpack)(args,1,ac)))",
-          RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();fn((table.unpack or unpack)(args,1,ac))",
+          SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+
+                     "if type(fn)=='table' and fn.__cl then "+
+                       "local cf={};cf[0]=obj;for k=1,ac do cf[k]=args[k] end;"+
+                       N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
+                       F+"=cf;"+N.upvals+"=fn.ups;"+CT+"."+CF.ip+"=fn.addr;"+CT+"."+CF.jumped+"=true "+
+                     "else "+P+"(fn(obj,(table.unpack or unpack)(args,1,ac))) end",
+          CALLR:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+
+                     "if type(fn)=='table' and fn.__cl then "+
+                       "local cf={};for k=1,ac do cf[k-1]=args[k] end;"+
+                       N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
+                       F+"=cf;"+N.upvals+"=fn.ups;"+CT+"."+CF.ip+"=fn.addr;"+CT+"."+CF.jumped+"=true "+
+                     "else "+P+"(fn((table.unpack or unpack)(args,1,ac))) end",
+          RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+
+                     "if type(fn)=='table' and fn.__cl then "+
+                       "local cf={};for k=1,ac do cf[k-1]=args[k] end;"+
+                       N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
+                       F+"=cf;"+N.upvals+"=fn.ups;"+CT+"."+CF.ip+"=fn.addr;"+CT+"."+CF.jumped+"=true "+
+                     "else fn((table.unpack or unpack)(args,1,ac)) end",
           // Stage 3: real pcall. a = arg count (callee + its args). Pop args and
           // callee, run under Lua pcall, then push results so that the VM's
           // multi-assign (STOREMULTI) unpacks `local ok, res = pcall(...)`.
