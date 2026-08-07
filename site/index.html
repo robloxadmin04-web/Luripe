@@ -1482,9 +1482,8 @@ end</textarea>
               return;
             }
           }
-          if (node.base && node.base.type === "Identifier" && node.base.name === "print") {
-            compileExpr(node.arguments[0]); emit(OP.PRINT); return;
-          }
+          // (print special-case removed: multi-arg print now uses the normal CALLR path)
+          
           // (BUILTIN hardcoded routing removed â€” Lua resolves library calls
           // uniformly as GETGLOBAL+GETTABLE+CALL. math.max, string.upper, etc.
           // now flow through the same runtime CALLR/SELFCALL path as any call,
