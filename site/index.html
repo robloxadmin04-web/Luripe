@@ -2607,7 +2607,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -3396,7 +3396,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -3976,7 +3976,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -4556,7 +4556,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
@@ -5136,7 +5136,7 @@ end</textarea>
         // it virtualizes everything it can and per-function spills only the
         // unsupported parts, so setmetatable/pcall/Color3/etc no longer force a
         // whole-script wrapper. needsWrapper() is only a hint for AUTO mode.
-        if (m === "vm" || m === "wrapper" || m === "raw") return m;
+        if (m === "vm" || m === "wrapper" || m === "raw" || m === "native") return m;
         // auto: AI verdict wins if present, then static detection, else VM.
         const v = window.__luripeVerdict;
         if (v && (v.recommendedMode === "WRAPPER" || v.verdict === "NOT_VM_SAFE")) return "wrapper";
