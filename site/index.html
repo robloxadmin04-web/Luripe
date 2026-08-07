@@ -774,7 +774,17 @@ end</textarea>
           // PARTIAL-VM bridge: publish a VM local into the shared bridge table so a
           // spilled callback (real Lua closure) can read/update it across the boundary.
           BRIDGESET: "local nm="+N.decodeString+"(a);local val="+O+"();local G=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;G.__LRP_BRIDGE=G.__LRP_BRIDGE or {};G.__LRP_BRIDGE[nm]=val",
-          SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj[nm];"+
+          SELFCALL:  "local nm="+N.decodeString+"(a[1]);local ac=a[2];local args={};for k=ac,1,-1 do args[k]="+O+"() end;local obj="+O+"();local fn=obj and obj[nm];"+
+                     // OOP cross-boundary fallback: if the method is not on the object
+                     // (spilled method that never attached to a local class table),
+                     // look it up in the shared bridge + spill registry by name, then
+                     // by qualified 'Class.method'. Keeps self:method() working when the
+                     // class body is spilled. Normal (fn found on obj) path is untouched.
+                     "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);"+
+                     "if _br then fn=_br[nm] end;"+
+                     "if fn==nil then local _gg=(getgenv and getgenv());if _gg then fn=_gg[nm] end end;"+
+                     "if fn==nil then fn=_G[nm] end;"+
+                     "if fn==nil and type(obj)=='table' then local mt=getmetatable and getmetatable(obj);if type(mt)=='table' and type(mt.__index)=='table' then fn=mt.__index[nm] end end end;"+
                      "if type(fn)=='table' and fn.__cl then "+
                        "local cf={};cf[0]=obj;for k=1,ac do cf[k]=args[k] end;"+
                        N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
