@@ -2857,7 +2857,7 @@ function luraphBundle(OP, bytecode, checksum, constPool, spilledFns, usedOps) {
       }
       const numStr = enc.join(",");
       const chunk =
-        "local _s=" +
+        "do local _s=" +
         DEC +
         '("' +
         numStr +
@@ -2875,7 +2875,7 @@ function luraphBundle(OP, bytecode, checksum, constPool, spilledFns, usedOps) {
         GV +
         "[" +
         JSON.stringify(f.sym) +
-        "]=_f and _f();";
+        "]=_f and _f() end;";
       spillPrelude += chunk;
     }
   }
