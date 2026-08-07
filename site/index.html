@@ -718,6 +718,12 @@ end</textarea>
           MUL:      (Math.random()<0.5 ? "local x="+O+"();local b="+O+"();"+P+"(b*x)" : "local b="+O+"();local x="+O+"();"+P+"(x*b)"),
           DIV:      "local b="+O+"();local x="+O+"();"+P+"(x/b)",
           MOD:      "local b="+O+"();local x="+O+"();"+P+"(x%b)",
+          BAND:     "local b="+O+"();local x="+O+"();"+P+"(bit32.band(x,b))",
+          BOR:      "local b="+O+"();local x="+O+"();"+P+"(bit32.bor(x,b))",
+          BXOR:     "local b="+O+"();local x="+O+"();"+P+"(bit32.bxor(x,b))",
+          BNOT:     "local x="+O+"();"+P+"(bit32.bnot(x))",
+          SHL:      "local b="+O+"();local x="+O+"();"+P+"(bit32.lshift(x,b))",
+          SHR:      "local b="+O+"();local x="+O+"();"+P+"(bit32.rshift(x,b))",
           PRINT:    "print("+S+"["+SP+"()])",
           DUP:      P+"("+S+"["+SP+"()])",
           STORE:    F+"[a]="+O+"()",
@@ -1056,6 +1062,7 @@ end</textarea>
         "MOD","RETURNN","STOREMULTI","VARARG","NOT","NEWCELL","LOADCELL",
         "STORECELL","LOADUP","STOREUP","CLOSURE","CALLC","LOADK",
         "GETGLOBAL","SELFCALL","CALLR","RCALL","PCALL","BRIDGESET",
+        "BAND","BOR","BXOR","BNOT","SHL","SHR",
       ];
       function buildOpcodeMap() {
         const nums = [];
@@ -1144,6 +1151,17 @@ end</textarea>
           return out;
         }
 
+
+        function __gotoNorm(s){
+          // ::continue:: label at end of a loop body + goto continue -> 'continue'
+          // 1) drop the label declarations (::continue::) â€” they become no-ops
+          //    since the continue rewriter injects the loop-tail semantics.
+          // 2) turn 'goto continue' into 'continue'.
+          let o = s;
+          o = o.replace(/goto\s+continue\b/g, "continue");
+          o = o.replace(/::\s*continue\s*::/g, "");
+          return o;
+        }
         // ===== LPH_* MACRO EXPANSION (Luraph-compatible SDK) =====
         // Balanced-paren extractor so LPH_X( ... ) with nested calls unwraps safely.
         function __lphArgs(str, openIdx){
@@ -1178,7 +1196,7 @@ end</textarea>
           s=s.replace(/\bLPH_NO_VIRTUALIZE\b/g,"");   // bare marker leftovers
           return s;
         }
-        function __lprep(s){ let o=__lphExpand(s);
+        function __lprep(s){ let o=__gotoNorm(__lphExpand(s));
           o=o.replace(/\)\s*:\s*[A-Za-z_][A-Za-z0-9_.]*(\s*<[^>\r\n]*>)?(\s*\??)(\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*/g,")");
           o=o.replace(/([A-Za-z0-9_\]])\s*:\s*(?!:)([A-Za-z_][A-Za-z0-9_.]*(?:<[^>\r\n]*>)?\??(?:\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*)(?=\s*[,)=\r\n])/g,"$1");
           o=o.replace(/(^|[\r\n;]|\bthen\b|\bdo\b|\belse\b)(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]\r\n]+\])*)\s*(\.\.|[+\-*/%^])=\s*/g,function(m,p,ws,lv,op){return p+ws+lv+" = "+lv+" "+op+" ";});
@@ -1278,8 +1296,12 @@ end</textarea>
         let scope = {};
         let varargSlot = 0;
         let nextSlot = 0;
+        const SLOT_CEIL = 185; // stay under Luau's 200-local limit with headroom
         const slotFor = (name) => {
-          if (scope[name] === undefined) scope[name] = nextSlot++;
+          if (scope[name] === undefined) {
+            if (nextSlot >= SLOT_CEIL) throw new Error("slot overflow: function too large to virtualize (spilling)");
+            scope[name] = nextSlot++;
+          }
           return scope[name];
         };
 
@@ -1371,6 +1393,11 @@ end</textarea>
             else if (o === "/") emit(OP.DIV);
             else if (o === "%") emit(OP.MOD);
             else if (o === "..") emit(OP.CONCAT);
+            else if (o === "&") emit(OP.BAND);
+            else if (o === "|") emit(OP.BOR);
+            else if (o === "~") emit(OP.BXOR);
+            else if (o === "<<") emit(OP.SHL);
+            else if (o === ">>") emit(OP.SHR);
             else if (CMP[o]) emit(OP[CMP[o]]);
             else throw new Error("hindi sinusuportahan ang operator: " + o);
           } else if (node.type === "LogicalExpression") {
@@ -1429,6 +1456,7 @@ end</textarea>
             if (node.operator === "-") { emitNumber(0); compileExpr(node.argument); emit(OP.SUB); }
             else if (node.operator === "not") { compileExpr(node.argument); emit(OP.NOT); }
             else if (node.operator === "#") { compileExpr(node.argument); emit(OP.TLEN); }
+            else if (node.operator === "~") { compileExpr(node.argument); emit(OP.BNOT); }
             else throw new Error("hindi sinusuportahan ang unary operator: " + node.operator);
           } else if (node.type === "FunctionDeclaration" && !node.identifier) {
             // Anonymous function / callback -> closure (captures outer locals)
