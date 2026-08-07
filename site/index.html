@@ -479,6 +479,8 @@
     <!-- Luripe VM + encrypted spill (no plain source) lrp-encspill-mshxxk6g @ 2026-08-06T20:00:33.640Z -->
   
     <!-- Luripe VM uniform-call model (no builtin guessing) lrp-uniform-mshz2gj8 @ 2026-08-06T20:32:21.812Z -->
+  
+    <!-- Luripe VM spilled-call fix (math.max/log) lrp-fix-msie9xfl @ 2026-08-07T03:38:04.545Z -->
   </head>
   <body>
     <header>
@@ -1192,13 +1194,16 @@ end</textarea>
         const spillNamed = (qname, luaSrc) => {
           const gsym = '__lrp_spill_' + (__spillId++);
           spilledFns.push({ sym: gsym, src: luaSrc });
-          // Make the compiled program fetch the closure from the global env by a
-          // unique key, store it into a local slot under `qname`, so identifier
-          // loads + CALLR find it like any other value.
+          // Store the spilled closure into a local slot AND register it as a
+          // closure-backed function so call sites emit CALLC (load slot, call the
+          // value) instead of CALL [undefined addr]. Without the closureSlot
+          // registration, calling a spilled named fn crashed with "attempt to
+          // call a table value".
           if (qname && qname.indexOf('.') === -1 && qname.indexOf(':') === -1) {
             const slot = slotFor(qname);
             emit(OP.GETGLOBAL, encodeString(gsym));
             emit(OP.STORE, slot);
+            functions[qname] = { closureSlot: slot };
           }
           // qualified/method names (T.f / T:m) are reached at runtime via the
           // global table itself, so no local binding is required.
