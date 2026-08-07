@@ -58,7 +58,7 @@ const document = {
         const ANTI_DEBUG = false;           // layer 1: DISABLED - false-positives on executors (silent halt)
         const NESTED_VM = false;            // layer 5: DISABLED - extra indirection can break scope silently
         const CFG_REDIRECTS = true;         // Luraph v14: opaque-predicate control-flow redirects in dispatch
-        const DEBUG_ANTITAMPER = true;      // Luraph v14: debug.* hook/formatting-tool detection (safe, opt-in)
+        const DEBUG_ANTITAMPER = false;     // DISABLED - false-positives on executors: every executor installs a debug hook, so this halted the VM on the first opcode (silent break). Re-enable only with an allowlist for the executor's own hook.
         const VM_DEBUG = window.__luripeVMDebug === true;  // emits warn() beacons inside run() when Verbose is on
         // (layer 3 pure-numeric opcodes + layer 4 multi-round consts are always on)
 
