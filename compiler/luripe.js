@@ -396,9 +396,9 @@ function generateVM(OP, usedNames) {
     GETGLOBAL:
       "local nm=" +
       N.decodeString +
-      "(a);" +
+      "(a);local _gg=(getgenv and getgenv());local _v=(_gg and _gg[nm]);if _v==nil then _v=((_ENV or (getfenv and getfenv()) or _G) or {})[nm] end;" +
       P +
-      "((_ENV or getfenv and getfenv() or _G)[nm])",
+      "(_v)",
     // PARTIAL-VM bridge: publish a VM local into the shared bridge table so a
     // spilled callback (real Lua closure) can read/update it across the boundary.
     BRIDGESET:
