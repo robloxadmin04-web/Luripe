@@ -2274,10 +2274,25 @@ end</textarea>
             // Run each island under a shared _ENV: reads/writes of top-level names
             // (OOP tables, upvalues) resolve through __LRP_BRIDGE, with real globals
             // as fallback. This makes spilled methods see their parent tables.
-            f.src = "local __G=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;" +
+            f.src = "local __rG=(function() local ok,r=pcall(function() return getrenv and getrenv() end); if ok then return r end end)();" +
+                    "local __G=(getgenv and getgenv()) or __rG or (getfenv and getfenv()) or _G;" +
                     "local __B=__G.__LRP_BRIDGE or {};__G.__LRP_BRIDGE=__B;" +
-                    "local _ENV=setmetatable({},{__index=function(_,k) local v=__B[k];if v~=nil then return v end return __G[k] end," +
-                    "__newindex=function(_,k,val) __B[k]=val end});" +
+                    // MAX-HARDENED global resolver for spilled islands: search every known
+                    // source in order so executor globals (getrenv/hookfunction/debug/
+                    // getupvalues/etc.) always resolve. Order: bridge -> getgenv ->
+                    // getrenv -> _ENV/fenv(0/1) -> _G. pcall-guarded so a missing source
+                    // never throws; returns nil only if truly nowhere.
+                    "local function __lrpG(k) " +
+                    "  local v=__B[k]; if v~=nil then return v end;" +
+                    "  local gg=getgenv and getgenv(); if gg then v=gg[k]; if v~=nil then return v end end;" +
+                    "  if __rG then v=__rG[k]; if v~=nil then return v end end;" +
+                    "  local ok0,f0=pcall(getfenv,0); if ok0 and f0 then v=f0[k]; if v~=nil then return v end end;" +
+                    "  local ok1,f1=pcall(getfenv,1); if ok1 and f1 then v=f1[k]; if v~=nil then return v end end;" +
+                    "  v=__G[k]; if v~=nil then return v end;" +
+                    "  v=_G[k]; if v~=nil then return v end;" +
+                    "  return nil end;" +
+                    "local _ENV=setmetatable({},{__index=function(_,k) return __lrpG(k) end," +
+                    "__newindex=function(_,k,val) __B[k]=val;pcall(function() __G[k]=val end) end});" +
                     "return (function() " + f.src.replace(/^return /, "return ") + " end)()";
             const body = f.src.trim().slice(0, 8) === "function" || f.src.trim().slice(0,6) === "return"
               ? f.src
