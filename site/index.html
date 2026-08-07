@@ -683,7 +683,7 @@ end</textarea>
         // prelude/metamethod paths, so the generated VM was missing handlers.
         // When the program hit a missing opcode, the binary-search dispatch
         // routed to the wrong handler and corrupted the stack ("attempt to get
-        // length of a number value"). We now ALWAYS emit every handler â€” a
+        // length of a number value"). We now ALWAYS emit every handler Ã¢â‚¬â€ a
         // slightly larger VM that is guaranteed correct. `usedNames` is ignored.
         const EFF = OPS.slice();
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
@@ -1143,7 +1143,42 @@ end</textarea>
           while(g++ < 2000){ const l=__linner(out); if(!l)break; let body=out.slice(l.bodyStart,l.bodyEnd); body=__lbreak(body); out=out.slice(0,l.bodyStart)+" repeat"+body+" until true "+out.slice(l.bodyEnd); }
           return out;
         }
-        function __lprep(s){ let o=s;
+
+        // ===== LPH_* MACRO EXPANSION (Luraph-compatible SDK) =====
+        // Balanced-paren extractor so LPH_X( ... ) with nested calls unwraps safely.
+        function __lphArgs(str, openIdx){
+          // openIdx points at "(". returns {inner, end} where end is index AFTER ")".
+          let depth=0,i=openIdx,inStr=false,sc="";
+          for(;i<str.length;i++){ const c=str[i];
+            if(inStr){ if(c==="\\")i++; else if(c===sc)inStr=false; continue; }
+            if(c==='"'||c==="'"){inStr=true;sc=c;continue;}
+            if(c==="(")depth++;
+            else if(c===")"){depth--; if(depth===0)return{inner:str.slice(openIdx+1,i),end:i+1};}
+          }
+          return null;
+        }
+        function __lphExpand(s){
+          // constant-value macros first
+          s=s.replace(/\bLPH_OBFUSCATED\b/g,"true");
+          // unwrap call-form macros; loop until stable (handles nesting)
+          const unwrap=["LPH_ENCSTR","LPH_ENCNUM","LPH_NO_VIRTUALIZE","LPH_JIT_MAX","LPH_JIT","LPH_SKIP","LPH_ENCFUNC","LPH_ENCFUNCTION"];
+          let changed=true,guard=0;
+          while(changed && guard++<5000){ changed=false;
+            for(const name of unwrap){
+              const re=new RegExp("\\b"+name+"\\s*\\(");
+              const m=re.exec(s); if(!m)continue;
+              const open=m.index+m[0].length-1;
+              const got=__lphArgs(s,open); if(!got)continue;
+              s=s.slice(0,m.index)+"("+got.inner+")"+s.slice(got.end);
+              changed=true;
+            }
+          }
+          // zero-arg / special macros
+          s=s.replace(/\bLPH_CRASH\s*\(\s*\)/g,'(error(""))');
+          s=s.replace(/\bLPH_NO_VIRTUALIZE\b/g,"");   // bare marker leftovers
+          return s;
+        }
+        function __lprep(s){ let o=__lphExpand(s);
           o=o.replace(/\)\s*:\s*[A-Za-z_][A-Za-z0-9_.]*(\s*<[^>\r\n]*>)?(\s*\??)(\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*/g,")");
           o=o.replace(/([A-Za-z0-9_\]])\s*:\s*(?!:)([A-Za-z_][A-Za-z0-9_.]*(?:<[^>\r\n]*>)?\??(?:\s*\|\s*[A-Za-z_][A-Za-z0-9_.<>{}?]*)*)(?=\s*[,)=\r\n])/g,"$1");
           o=o.replace(/(^|[\r\n;]|\bthen\b|\bdo\b|\belse\b)(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]\r\n]+\])*)\s*(\.\.|[+\-*/%^])=\s*/g,function(m,p,ws,lv,op){return p+ws+lv+" = "+lv+" "+op+" ";});
@@ -1502,7 +1537,7 @@ end</textarea>
                 // the shared bridge table __LRP_BRIDGE. We inject a prelude that
                 // maps locals <-> bridge on entry/exit, keeping closure semantics.
                 // Prelude: pull current values in; Postlude via __index/__newindex
-                // is overkill â€” instead alias reads/writes with a metatable proxy.
+                // is overkill Ã¢â‚¬â€ instead alias reads/writes with a metatable proxy.
                 // Simpler + robust: wrap the user fn so the bridged names become
                 // upvalues initialized from the bridge and written back after call.
                 const decls = bridged.map(n => "local "+n+"=__LRP_BRIDGE["+JSON.stringify(n)+"]").join(";");
@@ -1518,7 +1553,7 @@ end</textarea>
                     "local __r={__f(...)}; " + writes + "; " +
                     "return (table.unpack or unpack)(__r) end end)()";
                 spilledFns.push({ sym: gsym, src: wrapped, bridged: bridged.slice() });
-                // NOTE: do NOT publish to the bridge here â€” emitting LOAD+BRIDGESET
+                // NOTE: do NOT publish to the bridge here Ã¢â‚¬â€ emitting LOAD+BRIDGESET
                 // mid-argument-assembly corrupts the call's stack. The bridge is
                 // filled by mirror-on-assign (after the local is written) and read
                 // by the wrapper at fire-time. Seed any already-known values now via
@@ -1556,7 +1591,7 @@ end</textarea>
           }
           // (print special-case removed: multi-arg print now uses the normal CALLR path)
           
-          // (BUILTIN hardcoded routing removed â€” Lua resolves library calls
+          // (BUILTIN hardcoded routing removed Ã¢â‚¬â€ Lua resolves library calls
           // uniformly as GETGLOBAL+GETTABLE+CALL. math.max, string.upper, etc.
           // now flow through the same runtime CALLR/SELFCALL path as any call,
           // via the MemberExpression/qualified-call handling below. No guessing.)
@@ -1956,6 +1991,17 @@ end</textarea>
 
         scope.__nestedNames = namesUsedByNestedFns(ast.body);
         compileBlock(ast.body);
+        // ===== BYTECODE MUTATION: inject neutral dead ops (info stripping) =====
+        // PUSH k ; POP  -> net no-op. Scatter a few so op-count/order desyncs
+        // from source structure. Placed after full compile, before HALT.
+        (function __bcmutate(){
+          const rounds = 6 + ((Math.random()*10)|0);
+          for (let r=0;r<rounds;r++){
+            const k = ((Math.random()*90000)|0)+7;
+            emit(OP.PUSH, k);
+            emit(OP.POP);
+          }
+        })();
         emit(OP.HALT);
         return { OP, bytecode, constPool, spilledFns, usedOps };
       }
@@ -2055,6 +2101,31 @@ end</textarea>
         const S1 = DUAL_VM ? (1 + Math.floor(Math.random() * 0xFFFFFF)) : 0;
         function stage1(v){ if(!DUAL_VM) return v>>>0; return (((v>>>0) ^ S1) + S1) >>> 0; }
         const blob = nums.map((n) => stage1(enc(n) >>> 0)).join(",");
+        // ===== COMPRESSION: LZW over the blob string, packed to a safe charset =====
+        // Alphabet for packed codes: 90 printable, Lua-string-safe chars (no quote/backslash).
+        const LZW_ALPHA = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!#$%&()*+-./:;<=>?@[]^_ ";
+        function __lzwCompress(str){
+          const dict=new Map(); let dsize=256;
+          for(let i=0;i<256;i++)dict.set(String.fromCharCode(i),i);
+          let w="",res=[];
+          for(const ch of str){ const wc=w+ch;
+            if(dict.has(wc))w=wc; else { res.push(dict.get(w)); dict.set(wc,dsize++); w=ch; } }
+          if(w!=="")res.push(dict.get(w));
+          return res; // array of ints
+        }
+        // Pack ints -> variable-length base-90 with a terminator so Lua can split.
+        function __packCodes(codes){
+          const B=LZW_ALPHA.length; let out="";
+          for(const c of codes){ let n=c; let s="";
+            do{ s=LZW_ALPHA[n%B]+s; n=(n-(n%B))/B; }while(n>0);
+            out+=s+","; }
+          return out;
+        }
+        const __rawBlob = blob;
+        const __codes = __lzwCompress(__rawBlob);
+        const __packed = __packCodes(__codes);
+        const __useCompression = __packed.length < __rawBlob.length; // only if it actually wins
+        const COMPRESSED_BLOB = __useCompression ? __packed : null;
 
         // Constant pool serialized as a Lua table of tables (encoded numbers).
         const constLua = "{" + constPool.map((c) => "{" + c.join(",") + "}").join(",") + "}";
@@ -2069,7 +2140,12 @@ end</textarea>
         const idxOrder = OPS.map((_, i) => i);
         for (let i = idxOrder.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [idxOrder[i], idxOrder[j]] = [idxOrder[j], idxOrder[i]]; }
         // valsArr in scrambled index order; namesArr aligned to same scramble.
-        const namesArr = idxOrder.map((i) => '"' + OPS[i] + '"').join(",");
+        // INFO STRIP: emit DECOY name tokens in the visible names array; build the
+        // REAL map from a parallel hidden index so runtime linkage stays correct
+        // while the output reveals no genuine opcode names.
+        const decoyPool = ["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","aa","ab","ac","ad","ae","af","ag","ah","ai","aj","ak","al","am","an","ao","ap","aq"];
+        const decoyNames = idxOrder.map((_, i) => '"' + decoyPool[i % decoyPool.length] + String((Math.random()*90)|0) + '"').join(",");
+        const namesArr = decoyNames;
         const valsArr = idxOrder.map((i) => OP[OPS[i]]).join(",");
         const NM = "_" + Math.random().toString(36).slice(2, 7);
         const VL = "_" + Math.random().toString(36).slice(2, 7);
@@ -2094,7 +2170,27 @@ end</textarea>
           const LSV = "_" + Math.random().toString(36).slice(2, 7);
           const GV = "_" + Math.random().toString(36).slice(2, 7);
           const DEC = "_" + Math.random().toString(36).slice(2, 7);
-          spillPrelude += "local " + LSV + "=loadstring or load;";
+          // HARDENED loadstring resolution: pull the compiler through several
+          // independent paths so a single blanket hook on 'loadstring' does not
+          // capture every reference, then verify with a randomized canary. A spy
+          // that logs+returns the source string (instead of a real function),
+          // or mangles it, fails the canary and we abort the spill silently.
+          const _cA = 1 + Math.floor(Math.random()*400);
+          const _cB = 1 + Math.floor(Math.random()*400);
+          spillPrelude += "local " + LSV + "=(function() " +
+            "local a=rawget(_G,'loadstring');local b=rawget(_G,'load');" +
+            "local c=(getgenv and getgenv() and getgenv().loadstring);" +
+            "local f=a or c or b;" +
+            "if type(f)~='function' then return nil end;" +
+            // canary: compile a random sum and require the exact numeric result.
+            "local ok,cf=pcall(f,'return " + _cA + "+" + _cB + "');" +
+            "if not ok or type(cf)~='function' then return nil end;" +
+            "local ok2,rv=pcall(cf);" +
+            "if not ok2 or rv~=" + (_cA + _cB) + " then return nil end;" +
+            "return f end)();" +
+            // if resolution failed (hooked/removed), skip spill entirely â€” the VM
+            // core still runs; only un-virtualizable fallbacks are dropped.
+            "if type(" + LSV + ")~='function' then " + LSV + "=nil end;";
           spillPrelude += "local " + GV + "=(getgenv and getgenv()) or (getfenv and getfenv()) or _G;";
           // Ensure GETGLOBAL and spill registration read/write the SAME table:
           // mirror every spilled symbol into _G too, so a VM GETGLOBAL that falls
@@ -2149,7 +2245,7 @@ end</textarea>
             }
             const numStr = enc.join(",");
             const chunk = "do local _s=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
-              "local _f=" + LSV + "(_s);" +
+              "local _f=" + LSV + " and " + LSV + "(_s);" +
               "if setfenv and _f then pcall(setfenv,_f," + GV + ") end;" +
               "local __rf=_f and _f();" +
               "local __gg=(getgenv and getgenv());if __gg then __gg[" + JSON.stringify(f.sym) + "]=__rf end;" +
@@ -2168,7 +2264,23 @@ end</textarea>
           "local " + MK + "1=bit32.band(bit32.bxor(" + SM + ",0x9e3779b1)+" + seed + ",0xFFFFFFFF);" +
           "local " + MK + "2=bit32.band(bit32.bxor(" + SM + "*2654435761,bit32.lshift(" + seed + ",1)),0xFFFFFFFF);" +
           junk(1) +
-          "local " + B + "=\"" + blob + "\";" +
+          (COMPRESSED_BLOB
+            ? (
+                // packed base-90 code stream + inline LZW decompressor -> original comma blob
+                "local _lzA=\"" + LZW_ALPHA.replace(/\\/g,"\\\\").replace(/"/g,"\\\"") + "\";" +
+                "local _lzM={};for _z=1,#_lzA do _lzM[_lzA:sub(_z,_z)]=_z-1 end;" +
+                "local _lzP=\"" + COMPRESSED_BLOB + "\";" +
+                // unpack base-90 (comma-delimited) -> array of codes
+                "local _lzC={};for _tok in _lzP:gmatch(\"[^,]+\") do local _v=0;for _i=1,#_tok do _v=_v*" + LZW_ALPHA.length + "+_lzM[_tok:sub(_i,_i)] end;_lzC[#_lzC+1]=_v end;" +
+                // LZW decode
+                "local _lzD={};for _i=0,255 do _lzD[_i]=string.char(_i) end;local _lzS=256;" +
+                "local _lzOut={};local _lzPrev=_lzD[_lzC[1]];_lzOut[1]=_lzPrev;" +
+                "for _i=2,#_lzC do local _k=_lzC[_i];local _e;" +
+                "if _lzD[_k]~=nil then _e=_lzD[_k] elseif _k==_lzS then _e=_lzPrev.._lzPrev:sub(1,1) else _e=_lzPrev.._lzPrev:sub(1,1) end;" +
+                "_lzOut[#_lzOut+1]=_e;_lzD[_lzS]=_lzPrev.._e:sub(1,1);_lzS=_lzS+1;_lzPrev=_e end;" +
+                "local " + B + "=table.concat(_lzOut);"
+              )
+            : "local " + B + "=\"" + blob + "\";") +
           "local " + C + "=" + constLua + ";" +
           junk(1) +
           (DUAL_VM ? "local " + S1V + "=" + S1 + ";" : "") +
@@ -2303,12 +2415,14 @@ end</textarea>
         // Anti-hook: capture a trusted reference to loadstring/load, and verify a tiny canary
         // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
         const anti =
-          "local " + LS + "=loadstring or load;" +
+          "local " + LS + "=(function() local a=rawget(_G,'loadstring');local b=rawget(_G,'load');" +
+          "local c=(getgenv and getgenv() and getgenv().loadstring);return a or c or b end)();" +
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
           // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
           // (instead of a function) or mangles it will fail this and we abort before feeding real source.
-          "local _cf=" + LS + "('return 1+1');" +
-          "if type(_cf)~='function' or _cf()~=2 then warn('Luripe: environment tampered (loadstring hook detected)') return end;";
+          (function(){ const a=2+Math.floor(Math.random()*900), b=2+Math.floor(Math.random()*900);
+            return "local _cf=" + LS + "('return " + a + "+" + b + "');" +
+            "if type(_cf)~='function' or _cf()~=" + (a+b) + " then warn('Luripe: environment tampered (loadstring hook detected)') return end;"; })();
 
         const loader =
           vmCamouflage() +
@@ -2855,12 +2969,14 @@ end</textarea>
         // Anti-hook: capture a trusted reference to loadstring/load, and verify a tiny canary
         // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
         const anti =
-          "local " + LS + "=loadstring or load;" +
+          "local " + LS + "=(function() local a=rawget(_G,'loadstring');local b=rawget(_G,'load');" +
+          "local c=(getgenv and getgenv() and getgenv().loadstring);return a or c or b end)();" +
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
           // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
           // (instead of a function) or mangles it will fail this and we abort before feeding real source.
-          "local _cf=" + LS + "('return 1+1');" +
-          "if type(_cf)~='function' or _cf()~=2 then warn('Luripe: environment tampered (loadstring hook detected)') return end;";
+          (function(){ const a=2+Math.floor(Math.random()*900), b=2+Math.floor(Math.random()*900);
+            return "local _cf=" + LS + "('return " + a + "+" + b + "');" +
+            "if type(_cf)~='function' or _cf()~=" + (a+b) + " then warn('Luripe: environment tampered (loadstring hook detected)') return end;"; })();
 
         const loader =
           J(3) +
@@ -3406,12 +3522,14 @@ end</textarea>
         // Anti-hook: capture a trusted reference to loadstring/load, and verify a tiny canary
         // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
         const anti =
-          "local " + LS + "=loadstring or load;" +
+          "local " + LS + "=(function() local a=rawget(_G,'loadstring');local b=rawget(_G,'load');" +
+          "local c=(getgenv and getgenv() and getgenv().loadstring);return a or c or b end)();" +
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
           // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
           // (instead of a function) or mangles it will fail this and we abort before feeding real source.
-          "local _cf=" + LS + "('return 1+1');" +
-          "if type(_cf)~='function' or _cf()~=2 then warn('Luripe: environment tampered (loadstring hook detected)') return end;";
+          (function(){ const a=2+Math.floor(Math.random()*900), b=2+Math.floor(Math.random()*900);
+            return "local _cf=" + LS + "('return " + a + "+" + b + "');" +
+            "if type(_cf)~='function' or _cf()~=" + (a+b) + " then warn('Luripe: environment tampered (loadstring hook detected)') return end;"; })();
 
         const loader =
           J(3) +
@@ -3957,12 +4075,14 @@ end</textarea>
         // Anti-hook: capture a trusted reference to loadstring/load, and verify a tiny canary
         // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
         const anti =
-          "local " + LS + "=loadstring or load;" +
+          "local " + LS + "=(function() local a=rawget(_G,'loadstring');local b=rawget(_G,'load');" +
+          "local c=(getgenv and getgenv() and getgenv().loadstring);return a or c or b end)();" +
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
           // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
           // (instead of a function) or mangles it will fail this and we abort before feeding real source.
-          "local _cf=" + LS + "('return 1+1');" +
-          "if type(_cf)~='function' or _cf()~=2 then warn('Luripe: environment tampered (loadstring hook detected)') return end;";
+          (function(){ const a=2+Math.floor(Math.random()*900), b=2+Math.floor(Math.random()*900);
+            return "local _cf=" + LS + "('return " + a + "+" + b + "');" +
+            "if type(_cf)~='function' or _cf()~=" + (a+b) + " then warn('Luripe: environment tampered (loadstring hook detected)') return end;"; })();
 
         const loader =
           J(3) +
@@ -4508,12 +4628,14 @@ end</textarea>
         // Anti-hook: capture a trusted reference to loadstring/load, and verify a tiny canary
         // compiles+runs to the expected value. A naive hook that logs+returns the arg breaks this.
         const anti =
-          "local " + LS + "=loadstring or load;" +
+          "local " + LS + "=(function() local a=rawget(_G,'loadstring');local b=rawget(_G,'load');" +
+          "local c=(getgenv and getgenv() and getgenv().loadstring);return a or c or b end)();" +
           "if type(" + LS + ")~='function' then warn('Luripe: loadstring/load not available') return end;" +
           // canary: compile 'return 1+1' and ensure it yields 2. A spy that returns the source string
           // (instead of a function) or mangles it will fail this and we abort before feeding real source.
-          "local _cf=" + LS + "('return 1+1');" +
-          "if type(_cf)~='function' or _cf()~=2 then warn('Luripe: environment tampered (loadstring hook detected)') return end;";
+          (function(){ const a=2+Math.floor(Math.random()*900), b=2+Math.floor(Math.random()*900);
+            return "local _cf=" + LS + "('return " + a + "+" + b + "');" +
+            "if type(_cf)~='function' or _cf()~=" + (a+b) + " then warn('Luripe: environment tampered (loadstring hook detected)') return end;"; })();
 
         const loader =
           J(3) +
