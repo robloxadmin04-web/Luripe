@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Luripe - Luau Obfuscator</title>
+    <!-- ROOT-CAUSE PARSER FIX: luaparse@0.3.1's scope pass enforced const on
+         `local function` names and threw "Assignment to constant variable" at
+         PARSE time â€” un-outrunnable by regex across scopes. Upgraded to current
+         luaparse; every parse call now passes scope:false (the documented
+         default that does NO const enforcement), removing the whole error class. -->
     <script src="https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.min.js"></script>
     <style>
       :root {
@@ -1330,7 +1335,11 @@ end</textarea>
           return o;
         }
         source = __lprep(source);
-        const ast = luaparse.parse(source, { ranges: true });
+        // scope:false is the documented default that does NO const enforcement â€”
+        // this is the root-cause fix for "Assignment to constant variable" (thrown
+        // by luaparse's scope pass on reassigned `local function` names). Explicit
+        // here so the behaviour can never silently flip back on.
+        const ast = luaparse.parse(source, { ranges: true, scope: false });
         // ===================== [AST TRANSFORMS] =====================
         // VM+AST pipeline stage: Source -> Parser -> AST -> THESE PASSES ->
         // Bytecode compiler -> VM. Each pass rewrites a hard construct into
