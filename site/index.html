@@ -1925,10 +1925,13 @@ end</textarea>
         let __blockDepth = 0;
         function compileBlock(body) {
           __blockDepth++;
-          // PER-BLOCK HYBRID: statements at the top level AND inside first-level
-          // do/if/for blocks each get their own VM-or-island decision. A single
-          // unsupported statement becomes an encrypted island; the rest stay VM.
-          const atTop = __blockDepth <= 2;
+          // PER-BLOCK HYBRID (granular at EVERY depth): every statement gets its
+          // own VM-or-island decision, no matter how deeply nested. This stops a
+          // single unsupported node deep in a function from cascading the WHOLE
+          // function (and its nested fns) out to a source island â€” which is what
+          // made VM output behave like wrapper output on large scripts. Only the
+          // failing statement spills; everything around it stays virtualized.
+          const atTop = true;
           for (const stmt of body) {
             emitJunk();
             if (atTop) {
