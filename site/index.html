@@ -1730,7 +1730,7 @@ end</textarea>
         // SELFCALL path (which already exists in the VM).
         const spillNamed = (qname, luaSrc) => {
           const gsym = '__lrp_spill_' + (__spillId++);
-          spilledFns.push({ sym: gsym, src: luaSrc, name: qname });
+          spilledFns.push({ sym: gsym, src: luaSrc, name: qname, reason: 'named-fn-fallback' });
           // Store the spilled closure into a local slot AND register it as a
           // closure-backed function so call sites emit CALLC (load slot, call the
           // value) instead of CALL [undefined addr]. Without the closureSlot
@@ -1891,7 +1891,7 @@ end</textarea>
                 const src = nodeSource(v);
                 if (src) {
                   const gsym = '__lrp_spill_' + (__spillId++);
-                  spilledFns.push({ sym: gsym, src: 'return ' + src });
+                  spilledFns.push({ sym: gsym, src: 'return ' + src, reason: 'table-field-fn' });
                   emit(OP.GETGLOBAL, encodeString(gsym));
                   return;
                 }
@@ -2061,7 +2061,7 @@ end</textarea>
                     bridged.map(n => n+"=__LRP_BRIDGE["+JSON.stringify(n)+"]").join(";") + "; " +
                     "local __r={__f(...)}; " + writes + "; " +
                     "return (table.unpack or unpack)(__r) end end)()";
-                spilledFns.push({ sym: gsym, src: wrapped, bridged: bridged.slice() });
+                spilledFns.push({ sym: gsym, src: wrapped, bridged: bridged.slice(), reason: 'pcall-bridged' });
                 // NOTE: do NOT publish to the bridge here ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â emitting LOAD+BRIDGESET
                 // mid-argument-assembly corrupts the call's stack. The bridge is
                 // filled by mirror-on-assign (after the local is written) and read
@@ -2071,7 +2071,7 @@ end</textarea>
                 argNode.__lrpBridged = bridged.slice();
                 for (const n of bridged) bridgedEver.add(n);
               } else {
-                spilledFns.push({ sym: gsym, src: 'return ' + src });
+                spilledFns.push({ sym: gsym, src: 'return ' + src, reason: 'expr-fallback' });
               }
               emit(OP.GETGLOBAL, encodeString(gsym));
               return;
@@ -2091,7 +2091,7 @@ end</textarea>
             if (src) {
               const gsym = '__lrp_spill_' + (__spillId++);
               // island: run the real pcall, pack all results into a table with count.
-              spilledFns.push({ sym: gsym, src: 'return function() local __t=table.pack(' + src + '); return __t end' });
+              spilledFns.push({ sym: gsym, src: 'return function() local __t=table.pack(' + src + '); return __t end', reason: 'pcall-packed' });
               emit(OP.GETGLOBAL, encodeString(gsym)); // push the island closure
               emit(OP.CALLR, 0);                         // call it -> pushes packed table
               node.__pcallPacked = true;                 // mark for STOREMULTI rewrite
@@ -2182,7 +2182,7 @@ end</textarea>
               const src = nodeSource(valueNode);
               if (src) {
                 const gsym = '__lrp_spill_' + (__spillId++);
-                spilledFns.push({ sym: gsym, src: 'return ' + src });
+                spilledFns.push({ sym: gsym, src: 'return ' + src, reason: 'expr-fallback' });
                 emit(OP.GETGLOBAL, encodeString(gsym));
                 return;
               }
@@ -2242,7 +2242,7 @@ end</textarea>
                 // loadstring island sharing the global env. Emitted via a
                 // zero-arg spilled closure that we then CALLR with 0 args.
                 const gsym = '__lrp_spill_' + (__spillId++);
-                spilledFns.push({ sym: gsym, src: 'return function() ' + src + ' end' });
+                spilledFns.push({ sym: gsym, src: 'return function() ' + src + ' end', reason: 'fn-body-wrap' });
                 emit(OP.GETGLOBAL, encodeString(gsym));
                 emit(OP.CALLR, 0);
                 emit(OP.POP);
@@ -3183,7 +3183,7 @@ end</textarea>
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
-          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
+          (function(){ try { var __h={}; (spilledFns||[]).forEach(function(f){ var r=(f.reason||'unknown'); __h[r]=(__h[r]||0)+1; }); window.__spillHistogram=__h; var __top=Object.keys(__h).sort(function(a,b){return __h[b]-__h[a];}).slice(0,4).map(function(k){return k+':'+__h[k];}).join(', '); setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " spilled - " + __top + ")" : "") + ".", "ok"); } catch(e){ setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions.", "ok"); } })();
         } catch (e) {
           // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
           // rebuild as wrapper (that hides the real cause). Surface the exact error
@@ -3875,7 +3875,7 @@ end</textarea>
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
-          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
+          (function(){ try { var __h={}; (spilledFns||[]).forEach(function(f){ var r=(f.reason||'unknown'); __h[r]=(__h[r]||0)+1; }); window.__spillHistogram=__h; var __top=Object.keys(__h).sort(function(a,b){return __h[b]-__h[a];}).slice(0,4).map(function(k){return k+':'+__h[k];}).join(', '); setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " spilled - " + __top + ")" : "") + ".", "ok"); } catch(e){ setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions.", "ok"); } })();
         } catch (e) {
           // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
           // rebuild as wrapper (that hides the real cause). Surface the exact error
@@ -4458,7 +4458,7 @@ end</textarea>
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
-          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
+          (function(){ try { var __h={}; (spilledFns||[]).forEach(function(f){ var r=(f.reason||'unknown'); __h[r]=(__h[r]||0)+1; }); window.__spillHistogram=__h; var __top=Object.keys(__h).sort(function(a,b){return __h[b]-__h[a];}).slice(0,4).map(function(k){return k+':'+__h[k];}).join(', '); setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " spilled - " + __top + ")" : "") + ".", "ok"); } catch(e){ setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions.", "ok"); } })();
         } catch (e) {
           // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
           // rebuild as wrapper (that hides the real cause). Surface the exact error
@@ -5041,7 +5041,7 @@ end</textarea>
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
-          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
+          (function(){ try { var __h={}; (spilledFns||[]).forEach(function(f){ var r=(f.reason||'unknown'); __h[r]=(__h[r]||0)+1; }); window.__spillHistogram=__h; var __top=Object.keys(__h).sort(function(a,b){return __h[b]-__h[a];}).slice(0,4).map(function(k){return k+':'+__h[k];}).join(', '); setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " spilled - " + __top + ")" : "") + ".", "ok"); } catch(e){ setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions.", "ok"); } })();
         } catch (e) {
           // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
           // rebuild as wrapper (that hides the real cause). Surface the exact error
@@ -5624,7 +5624,7 @@ end</textarea>
           const protectedLua = bundle(OP, bytecode, constPool, spilledFns, usedOps);
           outEl.value = protectedLua;
           downloadOutput(outEl.value);
-          setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
+          (function(){ try { var __h={}; (spilledFns||[]).forEach(function(f){ var r=(f.reason||'unknown'); __h[r]=(__h[r]||0)+1; }); window.__spillHistogram=__h; var __top=Object.keys(__h).sort(function(a,b){return __h[b]-__h[a];}).slice(0,4).map(function(k){return k+':'+__h[k];}).join(', '); setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " spilled - " + __top + ")" : "") + ".", "ok"); } catch(e){ setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions.", "ok"); } })();
         } catch (e) {
           // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
           // rebuild as wrapper (that hides the real cause). Surface the exact error
