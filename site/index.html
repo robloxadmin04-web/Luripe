@@ -2856,14 +2856,25 @@ end</textarea>
           downloadOutput(outEl.value);
           setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
         } catch (e) {
-          // VM couldn't handle it -> fall back to wrapper so the script still works.
-          try {
-            outEl.value = wrapperBundle(src, DBG);
-            downloadOutput(outEl.value);
-            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
-          } catch (e2) {
-            outEl.value = "";
-            setStatus(e.message, "err");
+          // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
+          // rebuild as wrapper (that hides the real cause). Surface the exact error
+          // with its line number so the true first failure is visible. Only AUTO
+          // mode is allowed to fall back to wrapper.
+          var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
+          if (mode === "vm") {
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
+            setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
+            if (window.console) console.error("[Luripe] VM compile failed:", e);
+          } else {
+            // AUTO mode: wrapper fallback is acceptable here.
+            try {
+              outEl.value = wrapperBundle(src, DBG);
+              downloadOutput(outEl.value);
+              setStatus("Auto: VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
+            } catch (e2) {
+              outEl.value = "";
+              setStatus(e.message, "err");
+            }
           }
         }
       }
@@ -3533,14 +3544,25 @@ end</textarea>
           downloadOutput(outEl.value);
           setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
         } catch (e) {
-          // VM couldn't handle it -> fall back to wrapper so the script still works.
-          try {
-            outEl.value = wrapperBundle(src, DBG);
-            downloadOutput(outEl.value);
-            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
-          } catch (e2) {
-            outEl.value = "";
-            setStatus(e.message, "err");
+          // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
+          // rebuild as wrapper (that hides the real cause). Surface the exact error
+          // with its line number so the true first failure is visible. Only AUTO
+          // mode is allowed to fall back to wrapper.
+          var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
+          if (mode === "vm") {
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
+            setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
+            if (window.console) console.error("[Luripe] VM compile failed:", e);
+          } else {
+            // AUTO mode: wrapper fallback is acceptable here.
+            try {
+              outEl.value = wrapperBundle(src, DBG);
+              downloadOutput(outEl.value);
+              setStatus("Auto: VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
+            } catch (e2) {
+              outEl.value = "";
+              setStatus(e.message, "err");
+            }
           }
         }
       }
@@ -4101,14 +4123,25 @@ end</textarea>
           downloadOutput(outEl.value);
           setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
         } catch (e) {
-          // VM couldn't handle it -> fall back to wrapper so the script still works.
-          try {
-            outEl.value = wrapperBundle(src, DBG);
-            downloadOutput(outEl.value);
-            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
-          } catch (e2) {
-            outEl.value = "";
-            setStatus(e.message, "err");
+          // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
+          // rebuild as wrapper (that hides the real cause). Surface the exact error
+          // with its line number so the true first failure is visible. Only AUTO
+          // mode is allowed to fall back to wrapper.
+          var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
+          if (mode === "vm") {
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
+            setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
+            if (window.console) console.error("[Luripe] VM compile failed:", e);
+          } else {
+            // AUTO mode: wrapper fallback is acceptable here.
+            try {
+              outEl.value = wrapperBundle(src, DBG);
+              downloadOutput(outEl.value);
+              setStatus("Auto: VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
+            } catch (e2) {
+              outEl.value = "";
+              setStatus(e.message, "err");
+            }
           }
         }
       }
@@ -4669,14 +4702,25 @@ end</textarea>
           downloadOutput(outEl.value);
           setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
         } catch (e) {
-          // VM couldn't handle it -> fall back to wrapper so the script still works.
-          try {
-            outEl.value = wrapperBundle(src, DBG);
-            downloadOutput(outEl.value);
-            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
-          } catch (e2) {
-            outEl.value = "";
-            setStatus(e.message, "err");
+          // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
+          // rebuild as wrapper (that hides the real cause). Surface the exact error
+          // with its line number so the true first failure is visible. Only AUTO
+          // mode is allowed to fall back to wrapper.
+          var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
+          if (mode === "vm") {
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
+            setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
+            if (window.console) console.error("[Luripe] VM compile failed:", e);
+          } else {
+            // AUTO mode: wrapper fallback is acceptable here.
+            try {
+              outEl.value = wrapperBundle(src, DBG);
+              downloadOutput(outEl.value);
+              setStatus("Auto: VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
+            } catch (e2) {
+              outEl.value = "";
+              setStatus(e.message, "err");
+            }
           }
         }
       }
@@ -5237,14 +5281,25 @@ end</textarea>
           downloadOutput(outEl.value);
           setStatus("Protected in VM mode - downloaded. " + bytecode.length + " instructions, randomized opcodes" + (spilledFns && spilledFns.length ? " (" + spilledFns.length + " fn(s) hybrid-wrapped)" : "") + ".", "ok");
         } catch (e) {
-          // VM couldn't handle it -> fall back to wrapper so the script still works.
-          try {
-            outEl.value = wrapperBundle(src, DBG);
-            downloadOutput(outEl.value);
-            setStatus("VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
-          } catch (e2) {
-            outEl.value = "";
-            setStatus(e.message, "err");
+          // HONEST VM FAILURE: when the user explicitly chose VM, do NOT silently
+          // rebuild as wrapper (that hides the real cause). Surface the exact error
+          // with its line number so the true first failure is visible. Only AUTO
+          // mode is allowed to fall back to wrapper.
+          var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
+          if (mode === "vm") {
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
+            setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
+            if (window.console) console.error("[Luripe] VM compile failed:", e);
+          } else {
+            // AUTO mode: wrapper fallback is acceptable here.
+            try {
+              outEl.value = wrapperBundle(src, DBG);
+              downloadOutput(outEl.value);
+              setStatus("Auto: VM unsupported (" + e.message + ") - used Wrapper mode instead, downloaded.", "ok");
+            } catch (e2) {
+              outEl.value = "";
+              setStatus(e.message, "err");
+            }
           }
         }
       }
