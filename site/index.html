@@ -1295,6 +1295,16 @@ end</textarea>
           // (c) Strip standalone type aliases:  type Name = ...   and  export type ...
           o=o.replace(/(^|[\r\n])\s*export\s+type\s+[^\r\n]*/g, "$1");
           o=o.replace(/(^|[\r\n])\s*type\s+[A-Za-z_]\w*\s*(<[^>\r\n]*>)?\s*=[^\r\n]*/g, "$1");
+          // ---- LOCAL-FUNCTION -> MUTABLE-LOCAL REWRITE (parse-time const fix) ----
+          // luaparse marks `local function NAME` as an immutable binding and throws
+          // "Assignment to constant variable" at PARSE time when the script later
+          // reassigns NAME (e.g. helper libraries that do `local function stroke`
+          // then `stroke = ...`). That parse throw drops the WHOLE file to wrapper.
+          // Rewriting to `local NAME; NAME = function(` makes it a normal mutable
+          // local â€” recursion still works (NAME is declared before the body), and
+          // the reassignment now parses. Plain names only (never a.b / a:b).
+          o=o.replace(/\blocal\s+function\s+([A-Za-z_]\w*)\s*\(/g,
+            function(m, name){ return "local " + name + "; " + name + " = function("; });
           // ---- BARE GENERIC-FOR NORMALIZE (Luau: for k,v in t do -> for k,v in pairs(t) do) ----
           // Only when the iterator is a single expression that is NOT already a call
           // (ipairs(..)/pairs(..)/next/a function call), i.e. 'in <expr> do' where
