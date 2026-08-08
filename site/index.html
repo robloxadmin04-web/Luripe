@@ -2623,6 +2623,30 @@ end</textarea>
           // resolve + setfenv + call) was written out inline in BOTH places for
           // every one of the spilled functions -- pure duplication with zero
           // protection value, since it's the exact same 3 lines every time.
+          // ===== SHARED _ENV FACTORY (v15 resolver hoist) =====
+          // The MAX-HARDENED global resolver used to be inlined into EVERY spilled
+          // island (~1KB each, x268) then encrypted -- pure duplication, the single
+          // largest remaining size cost. Emit it ONCE here as a factory that returns
+          // a FRESH _ENV per call, so each island still gets its own newindex-isolated
+          // environment table; only the identical resolver code is shared now.
+          const ENVF = "_" + Math.random().toString(36).slice(2, 7);
+          spillPrelude += "local function " + ENVF + "() " +
+            "local __rG=(function() local ok,r=pcall(function() return getrenv and getrenv() end); if ok then return r end end)();" +
+            "local __G=(getgenv and getgenv()) or __rG or (getfenv and getfenv()) or _G;" +
+            "local __B=__G.__LRP_BRIDGE or {};__G.__LRP_BRIDGE=__B;" +
+            "local function __lrpG(k) " +
+            "  local v=__B[k]; if v~=nil then " +
+            "    if type(v)=='table' and v.__cl and __G.__LRP_TRAMPO then return __G.__LRP_TRAMPO(v) end;" +
+            "    return v end;" +
+            "  local gg=getgenv and getgenv(); if gg then v=gg[k]; if v~=nil then return v end end;" +
+            "  if __rG then v=__rG[k]; if v~=nil then return v end end;" +
+            "  local ok0,f0=pcall(getfenv,0); if ok0 and f0 then v=f0[k]; if v~=nil then return v end end;" +
+            "  local ok1,f1=pcall(getfenv,1); if ok1 and f1 then v=f1[k]; if v~=nil then return v end end;" +
+            "  v=__G[k]; if v~=nil then return v end;" +
+            "  v=_G[k]; if v~=nil then return v end;" +
+            "  return nil end;" +
+            "return setmetatable({},{__index=function(_,k) return __lrpG(k) end," +
+            "__newindex=function(_,k,val) __B[k]=val;pcall(function() __G[k]=val end) end}) end;";
           const MAT = "_" + Math.random().toString(36).slice(2, 7);
           spillPrelude += "local function " + MAT + "(s) local f=" + LSV + " and " + LSV + "(s);" +
             "if setfenv and f then pcall(setfenv,f," + GV + ") end;return f and f() end;";
@@ -2630,29 +2654,7 @@ end</textarea>
             // Run each island under a shared _ENV: reads/writes of top-level names
             // (OOP tables, upvalues) resolve through __LRP_BRIDGE, with real globals
             // as fallback. This makes spilled methods see their parent tables.
-            f.src = "local __rG=(function() local ok,r=pcall(function() return getrenv and getrenv() end); if ok then return r end end)();" +
-                    "local __G=(getgenv and getgenv()) or __rG or (getfenv and getfenv()) or _G;" +
-                    "local __B=__G.__LRP_BRIDGE or {};__G.__LRP_BRIDGE=__B;" +
-                    // MAX-HARDENED global resolver for spilled islands: search every known
-                    // source in order so executor globals (getrenv/hookfunction/debug/
-                    // getupvalues/etc.) always resolve. Order: bridge -> getgenv ->
-                    // getrenv -> _ENV/fenv(0/1) -> _G. pcall-guarded so a missing source
-                    // never throws; returns nil only if truly nowhere.
-                    "local function __lrpG(k) " +
-                    "  local v=__B[k]; if v~=nil then " +
-                    // if the bridged value is a VM closure table, hand back the
-                    // installed trampoline (real function) so the island can call it.
-                    "    if type(v)=='table' and v.__cl and __G.__LRP_TRAMPO then return __G.__LRP_TRAMPO(v) end;" +
-                    "    return v end;" +
-                    "  local gg=getgenv and getgenv(); if gg then v=gg[k]; if v~=nil then return v end end;" +
-                    "  if __rG then v=__rG[k]; if v~=nil then return v end end;" +
-                    "  local ok0,f0=pcall(getfenv,0); if ok0 and f0 then v=f0[k]; if v~=nil then return v end end;" +
-                    "  local ok1,f1=pcall(getfenv,1); if ok1 and f1 then v=f1[k]; if v~=nil then return v end end;" +
-                    "  v=__G[k]; if v~=nil then return v end;" +
-                    "  v=_G[k]; if v~=nil then return v end;" +
-                    "  return nil end;" +
-                    "local _ENV=setmetatable({},{__index=function(_,k) return __lrpG(k) end," +
-                    "__newindex=function(_,k,val) __B[k]=val;pcall(function() __G[k]=val end) end});" +
+            f.src = "local _ENV=" + ENVF + "();" +
                     "return (function() " + f.src.replace(/^return /, "return ") + " end)()";
             const body = f.src.trim().slice(0, 8) === "function" || f.src.trim().slice(0,6) === "return"
               ? f.src
