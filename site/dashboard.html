@@ -71,7 +71,7 @@ table.insert(players, "Bob")
 for i, p in ipairs(players) do print(greet(p)) end</textarea>
 </section>
 <section class="panel">
-<div class="phead"><span class="lbl">Output â€” Protected script</span><button class="secondary" onclick="copyOut()">Copy</button></div>
+<div class="phead"><span class="lbl">Output â€” Protected script</span><span style="display:flex;gap:8px"><button class="secondary" onclick="downloadOut()">Download</button><button class="secondary" onclick="copyOut()">Copy</button></span></div>
 <textarea id="output" readonly placeholder="-- protected output appears here"></textarea>
 </section>
 </main>
@@ -92,6 +92,7 @@ for i, p in ipairs(players) do print(greet(p)) end</textarea>
 /* ===== UI plumbing ===== */
 function setStatus(m,c){var s=document.getElementById('status');s.textContent=m;s.className=c||'';}
 function copyOut(){var o=document.getElementById('output');o.select();document.execCommand('copy');setStatus('Copied.','ok');}
+function downloadOut(){var t=document.getElementById('output').value;if(!t){setStatus('Nothing to download.','err');return;}var b=new Blob([t],{type:'text/plain'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='protected_'+Date.now()+'.lua';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(a.href);setStatus('Downloaded.','ok');}
 var drop=document.getElementById('drop'),fi=document.getElementById('file');
 drop.onclick=function(){fi.click();};
 ['dragover','dragenter'].forEach(function(e){drop.addEventListener(e,function(ev){ev.preventDefault();drop.classList.add('drag');});});
@@ -267,12 +268,60 @@ var AST=(function(){
     return chunk;
   }
 
+  /* --- Luau -> Lua 5.3 preprocessing (Option B: type-strip + compound assign) ---
+     luaparse 0.3.1 is a Lua 5.1/5.3 parser; it rejects Luau-only syntax. We rewrite
+     the two safest features here so the parser accepts the source. `continue` and
+     if-expressions are handled in a later pass. Comments/strings are protected first. */
+  function preprocess(src){
+    // 1) protect strings & comments so we never rewrite inside them
+    var vault=[], vi=0;
+    function stash(m){ var k="\u0001V"+(vi++)+"\u0001"; vault.push(m); return k; }
+    // long strings [[...]] / [=[...]=]
+    src=src.replace(/\[(=*)\[[\s\S]*?\]\1\]/g, stash);
+    // line comments  -- ...   (also strips --[[ ]] block comments first)
+    src=src.replace(/--\[(=*)\[[\s\S]*?\]\1\]/g, stash);
+    src=src.replace(/--[^\n]*/g, stash);
+    // quoted strings "..." and '...'
+    src=src.replace(/"(?:\\.|[^"\\])*"/g, stash);
+    src=src.replace(/'(?:\\.|[^'\\])*'/g, stash);
+
+    // 2) compound assignment: x += y -> x = x + y   (also -= *= /= ..=  %=)
+    //    Only single-target statements (the common case in the script).
+    src=src.replace(/([A-Za-z_][\w.\[\]:'"()]*?)\s*([%+\-*/]|\.\.)=\s*/g,
+      function(_,tgt,op){ return tgt+" = "+tgt+" "+op+" "; });
+
+    // 3) strip type annotations.
+    //    (a) function return type:  ) : Type  ->  )
+    src=src.replace(/\)\s*:\s*[A-Za-z_][\w<>{}.,%\s|?:()\[\]]*?(?=[\r\n]|$)/g, ")");
+    //    (b) typed params/locals:  name : Type   -> name   (stop before , ) = or newline)
+    //        run repeatedly for multiple params on one line
+    var prev;
+    do{ prev=src;
+      src=src.replace(/([A-Za-z_]\w*)\s*:\s*[A-Za-z_][\w.]*(<[^>]*>)?(\{[^}]*\})?(\?)?/g, "$1");
+    }while(src!==prev);
+
+    // 4) restore vaulted strings/comments
+    for(var j=vault.length-1;j>=0;j--) src=src.split("\u0001V"+j+"\u0001").join(vault[j]);
+    return src;
+  }
+
+  /* --- force pure-ASCII output (no mojibake): any non-ASCII byte in a string
+     literal is already encrypted to a byte array, so the emitted source is ASCII.
+     This guard escapes any stray non-ASCII that slipped into identifiers/comments. */
+  function toAscii(s){
+    return s.replace(/[^\x00-\x7F]/g, function(ch){
+      return "\\"+ch.charCodeAt(0); // Lua decimal escape (only ever inside strings)
+    });
+  }
+
   function obfuscate(src){
     if(typeof luaparse==="undefined") throw new Error("luaparse not loaded");
+    src=preprocess(src);
     var chunk=luaparse.parse(src,{luaVersion:"5.3",scope:false,comments:false});
     mangle(chunk);
     var body=gen(chunk);
-    return "-- Luripe AST\n"+decoderSrc()+body+"\n";
+    var out="-- Luripe AST\n"+decoderSrc()+body+"\n";
+    return toAscii(out);
   }
 
   return { obfuscate: obfuscate };
