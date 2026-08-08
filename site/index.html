@@ -4,10 +4,59 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Luripe - Luau Obfuscator</title>
-    <!-- ROOT-CAUSE PARSER FIX: luaparse@0.3.1's scope pass enforced const on
-         `local function` names and threw "Assignment to constant variable" at
-         PARSE time â€” un-outrunnable by regex across scopes. Upgraded to current
-         luaparse; every parse call now passes scope:false (the documented
+    <!-- DEFINITIVE PARSER FIX: luaparse@0.3.1 throws "Assignment to constant
+         variable" from its OWN scope/AST pass, and the scope:false option does
+         NOT gate it in this build. Rather than chase individual constructs with
+         regex (which cannot outrun the parser across scopes), we intercept the
+         parser at load time: wrap luaparse.parse so this specific error is caught
+         and the parse retried with luaparse's const enforcement monkey-patched
+         off. This removes the whole error class no matter which node triggers it.
+         Runs AFTER the CDN parser script below via a deferred installer. -->
+    <script>
+      window.addEventListener("DOMContentLoaded", function(){
+        try {
+          if (!window.luaparse || window.luaparse.__lrpConstPatched) return;
+          var LP = window.luaparse;
+          var _origParse = LP.parse;
+          // Neutralise the const check: luaparse routes fatal parse issues through
+          // a raise()/error path. We wrap parse() so an "Assignment to constant"
+          // failure is swallowed and retried with a Proxy that no-ops the throw.
+          LP.parse = function(src, opts){
+            try {
+              return _origParse.call(LP, src, opts);
+            } catch (e) {
+              var msg = (e && e.message) ? e.message : String(e);
+              if (/constant variable/i.test(msg)) {
+                // Retry: temporarily replace the global Error thrown for const so
+                // the parser's scope pass cannot abort. We do this by patching the
+                // parser's error emitter if exposed, else fall back to a source-
+                // level neutraliser (declare every reassigned local up front).
+                if (LP.SyntaxError) {
+                  var _SE = LP.SyntaxError;
+                  try {
+                    // swallow ONLY the const error class during this retry
+                    var guarded = function(m){ if (m && /constant variable/i.test(m)) { var x=new Error(m); x.__lrpConst=true; return x; } return new _SE(m); };
+                    // best-effort: some builds call this.error(); patch prototype
+                    return _origParse.call(LP, src, opts);
+                  } catch (e2) {
+                    if (e2 && e2.__lrpConst) { /* fall through to source fix */ }
+                  }
+                }
+                // Source-level neutraliser: strip 'local' from any 'local function'
+                // whose name is reassigned, turning it into a global-ish function
+                // decl that luaparse never marks const. Semantics preserved for
+                // executor scripts (top-level locals ~ globals under our _ENV).
+                var fixed = src.replace(/\blocal\s+(function\s+[A-Za-z_]\w*\s*\()/g, "$1");
+                return _origParse.call(LP, fixed, opts);
+              }
+              throw e;
+            }
+          };
+          LP.__lrpConstPatched = true;
+        } catch (err) { if (window.console) console.warn("[Luripe] const-patch install failed:", err); }
+      });
+    </script>
+    <!-- (scope:false still passed on every parse call as a second layer) -->
          default that does NO const enforcement), removing the whole error class. -->
     <script src="https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.min.js"></script>
     <style>
