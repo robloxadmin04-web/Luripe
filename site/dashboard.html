@@ -148,7 +148,7 @@ var AST=(function(){
   }
   function decoderSrc(){
     return "local function "+DECODER_NAME+"(b) local k="+KEY+" local p=k local t={} for i=1,#b do local e=b[i] "+
-           "local ks=(k ~ (((i)*167)) ~ p)%256 t[i]=string.char((e ~ ks)%256) p=e end return table.concat(t) end\n";
+           "local ks=bit32.bxor(bit32.bxor(k,(i*167)%256),p)%256 t[i]=string.char(bit32.bxor(e,ks)%256) p=e end return table.concat(t) end\n";
   }
 
   /* --- regenerate Lua from AST (subset generator, closure-safe) --- */
