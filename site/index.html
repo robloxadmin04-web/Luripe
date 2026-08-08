@@ -2447,7 +2447,11 @@ end</textarea>
                     // getrenv -> _ENV/fenv(0/1) -> _G. pcall-guarded so a missing source
                     // never throws; returns nil only if truly nowhere.
                     "local function __lrpG(k) " +
-                    "  local v=__B[k]; if v~=nil then return v end;" +
+                    "  local v=__B[k]; if v~=nil then " +
+                    // if the bridged value is a VM closure table, hand back the
+                    // installed trampoline (real function) so the island can call it.
+                    "    if type(v)=='table' and v.__cl and __G.__LRP_TRAMPO then return __G.__LRP_TRAMPO(v) end;" +
+                    "    return v end;" +
                     "  local gg=getgenv and getgenv(); if gg then v=gg[k]; if v~=nil then return v end end;" +
                     "  if __rG then v=__rG[k]; if v~=nil then return v end end;" +
                     "  local ok0,f0=pcall(getfenv,0); if ok0 and f0 then v=f0[k]; if v~=nil then return v end end;" +
@@ -2491,7 +2495,8 @@ end</textarea>
               // bare-name and method lookups resolve.
               "do local _G2=(getgenv and getgenv()) or _G;_G2.__LRP_BRIDGE=_G2.__LRP_BRIDGE or {};_G2.__LRP_BRIDGE[" + JSON.stringify(f.sym) + "]=__rf;" +
               (f.name ? ("_G2.__LRP_BRIDGE[" + JSON.stringify(f.name) + "]=__rf;" +
-                        (f.name.indexOf(".")!==-1 ? "_G2.__LRP_BRIDGE[" + JSON.stringify(f.name.split(".").pop()) + "]=__rf;" : "")) : "") +
+                        // always also register the base name (after last '.' or ':')
+                        "_G2.__LRP_BRIDGE[" + JSON.stringify(f.name.split(/[.:]/).pop()) + "]=__rf;") : "") +
               "end;" +
               "if getfenv then local __fe=getfenv();if __fe then __fe[" + JSON.stringify(f.sym) + "]=__rf end end end;";
             spillPrelude += chunk;
