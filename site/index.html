@@ -2658,6 +2658,7 @@ end</textarea>
           // a FRESH _ENV per call, so each island still gets its own newindex-isolated
           // environment table; only the identical resolver code is shared now.
           const ENVF = "_" + Math.random().toString(36).slice(2, 7);
+          const ENVGKEY = "__lrp_ef_" + Math.random().toString(36).slice(2,8);
           spillPrelude += "local function " + ENVF + "() " +
             "local __rG=(function() local ok,r=pcall(function() return getrenv and getrenv() end); if ok then return r end end)();" +
             "local __G=(getgenv and getgenv()) or __rG or (getfenv and getfenv()) or _G;" +
@@ -2675,6 +2676,9 @@ end</textarea>
             "  return nil end;" +
             "return setmetatable({},{__index=function(_,k) return __lrpG(k) end," +
             "__newindex=function(_,k,val) __B[k]=val;pcall(function() __G[k]=val end) end}) end;";
+          // v18 FIX: pin the factory on the shared global table so loadstring'd
+          // island chunks (which do NOT capture outer Lua locals) can reach it.
+          spillPrelude += "do local __g=(getgenv and getgenv()) or _G;__g[" + JSON.stringify(ENVGKEY) + "]=" + ENVF + ";pcall(function() _G[" + JSON.stringify(ENVGKEY) + "]=" + ENVF + " end) end;";
           // ===== SHARED REGISTRATION HELPER (v16 registration dedup) =====
           // The bridge/global/getfenv/lazy-loader registration was identical text
           // across all 268 islands. Emit it ONCE as _reg(sym,name,base,rf,loader);
@@ -2696,7 +2700,8 @@ end</textarea>
             // Run each island under a shared _ENV: reads/writes of top-level names
             // (OOP tables, upvalues) resolve through __LRP_BRIDGE, with real globals
             // as fallback. This makes spilled methods see their parent tables.
-            f.src = "local _ENV=" + ENVF + "();" +
+            f.src = "local _ef=(getgenv and getgenv() and getgenv()[" + JSON.stringify(ENVGKEY) + "]) or _G[" + JSON.stringify(ENVGKEY) + "];" +
+                    "local _ENV=_ef and _ef() or ((getgenv and getgenv()) or _G);" +
                     "return (function() " + f.src.replace(/^return /, "return ") + " end)()";
             const body = f.src.trim().slice(0, 8) === "function" || f.src.trim().slice(0,6) === "return"
               ? f.src
