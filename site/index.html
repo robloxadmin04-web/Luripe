@@ -939,6 +939,20 @@ end</textarea>
                      // stack bottom->top: ok, res, 2. pop2: k=2->res->vs[2]; k=1->ok->vs[1].
                      // => vs[1]=ok, vs[2]=res. Correct.
                      P+"(ok);"+P+"(v);"+P+"(2)",
+          // ===== COROUTINE OPCODES (Half 2) =====
+          // All VM state is explicit data, so a coroutine is a second state object:
+          // suspend = stop the loop, resume = re-enter it. Per-thread callStack means
+          // yielding from inside nested calls works with no extra handling.
+          CORCREATE: "local clo="+O+"();if type(clo)~='table' or not clo.__cl then error('coroutine.create expects a function') end;"+P+"({__thread=true,addr=clo.addr,ups=clo.ups,started=false,status='suspended',st={},sp=0,fr={},cs={},ct=0,ip=clo.addr})",
+          CORRESUME: "local ac=a;local ra={};for k=ac-1,1,-1 do ra[k]="+O+"() end;local T="+O+"();"+
+                     "if type(T)~='table' or not T.__thread then error('coroutine.resume expects a thread') end;"+
+                     "if T.status=='dead' then "+P+"(false);"+P+"('cannot resume dead coroutine');"+P+"(2) else "+
+                     "T.status='running';local rv=__lrpRunThread(T,ra);"+
+                     "if rv.err then T.status='dead';"+P+"(false);"+P+"(rv.msg);"+P+"(2) else "+
+                     "if rv.done then T.status='dead' else T.status='suspended' end;"+
+                     "local vs=rv.vals;"+P+"(true);for _i=1,#vs do "+P+"(vs[_i]) end;"+P+"(#vs+1) end end",
+          CORYIELD: "local n=a;local vs={};for k=n,1,-1 do vs[k]="+O+"() end;__lrpYield.vals=vs;__lrpYield.flag=true",
+          CORSTATUS: "local T="+O+"();"+P+"((type(T)=='table' and T.__thread) and T.status or 'dead')",
         };
 
         const missing = EFF.filter((o) => !(o in body));
@@ -1216,6 +1230,7 @@ end</textarea>
         "STORECELL","LOADUP","STOREUP","CLOSURE","CALLC","LOADK",
         "GETGLOBAL","SELFCALL","CALLR","RCALL","PCALL","BRIDGESET",
         "BAND","BOR","BXOR","BNOT","SHL","SHR",
+        "CORCREATE","CORRESUME","CORYIELD","CORSTATUS",
       ];
       function buildOpcodeMap() {
         const nums = [];
@@ -3206,9 +3221,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
+            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
-            "coroutines (coroutine.create/wrap/resume/yield) - note: task.spawn/task.defer/task.delay are NOT coroutines, they are passthrough calls and ARE supported",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -3221,7 +3236,11 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. Recommend WRAPPER only if a construct from the NOT-supported list above is present.\n";
+          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
+          "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
+          "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
+          "Recommend WRAPPER only if goto/labels or xpcall literally appear in the source.\n";
 
         const prompt =
           "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
@@ -3785,9 +3804,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
+            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
-            "coroutines (coroutine.create/wrap/resume/yield) - note: task.spawn/task.defer/task.delay are NOT coroutines, they are passthrough calls and ARE supported",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -3800,7 +3819,11 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. Recommend WRAPPER only if a construct from the NOT-supported list above is present.\n";
+          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
+          "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
+          "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
+          "Recommend WRAPPER only if goto/labels or xpcall literally appear in the source.\n";
 
         const prompt =
           "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
@@ -4364,9 +4387,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
+            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
-            "coroutines (coroutine.create/wrap/resume/yield) - note: task.spawn/task.defer/task.delay are NOT coroutines, they are passthrough calls and ARE supported",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -4379,7 +4402,11 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. Recommend WRAPPER only if a construct from the NOT-supported list above is present.\n";
+          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
+          "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
+          "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
+          "Recommend WRAPPER only if goto/labels or xpcall literally appear in the source.\n";
 
         const prompt =
           "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
@@ -4943,9 +4970,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
+            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
-            "coroutines (coroutine.create/wrap/resume/yield) - note: task.spawn/task.defer/task.delay are NOT coroutines, they are passthrough calls and ARE supported",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -4958,7 +4985,11 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. Recommend WRAPPER only if a construct from the NOT-supported list above is present.\n";
+          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
+          "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
+          "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
+          "Recommend WRAPPER only if goto/labels or xpcall literally appear in the source.\n";
 
         const prompt =
           "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
@@ -5522,9 +5553,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
+            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
-            "coroutines (coroutine.create/wrap/resume/yield) - note: task.spawn/task.defer/task.delay are NOT coroutines, they are passthrough calls and ARE supported",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -5537,7 +5568,11 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. Recommend WRAPPER only if a construct from the NOT-supported list above is present.\n";
+          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
+          "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
+          "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
+          "Recommend WRAPPER only if goto/labels or xpcall literally appear in the source.\n";
 
         const prompt =
           "You are a static analyzer for the 'Luripe' Luau obfuscator. It has TWO modes: " +
