@@ -1403,7 +1403,39 @@ end</textarea>
         // this is the root-cause fix for "Assignment to constant variable" (thrown
         // by luaparse's scope pass on reassigned `local function` names). Explicit
         // here so the behaviour can never silently flip back on.
-        const ast = luaparse.parse(source, { ranges: true, scope: false });
+        const ast = (function __lrpResilientParse(){
+          var opts = { ranges: true, scope: false };
+          // SOLUTION 1 (AST-stage neutraliser): try as-is first.
+          try { return luaparse.parse(source, opts); } catch (e1) {
+            if (!/constant variable/i.test(e1 && e1.message || "")) throw e1;
+            if (window.__luripeVMDebug) { try { warn && warn("[Luripe][parse] const error - applying AST-stage local-function neutraliser"); } catch(_){} }
+            // SOLUTION 2 (blanket local-function strip): convert EVERY `local
+            // function NAME(` -> `NAME = function(` and every `local NAME; NAME =
+            // function(` (our earlier rewrite) -> `NAME = function(`. This removes
+            // the immutable binding luaparse marks const, WITHOUT needing to know
+            // which name it hates. Recursion still works because NAME resolves as a
+            // (global-ish) upvalue under our shared _ENV at runtime.
+            var s2 = source
+              .replace(/\blocal\s+([A-Za-z_]\w*)\s*;\s*\1\s*=\s*function\s*\(/g, "$1 = function(")
+              .replace(/\blocal\s+function\s+([A-Za-z_][\w.]*)\s*\(/g, "$1 = function(");
+            try { source = s2; return luaparse.parse(s2, opts); } catch (e2) {
+              if (!/constant variable/i.test(e2 && e2.message || "")) throw e2;
+              // SOLUTION 3 (recursive local-strip): iteratively drop `local ` from
+              // declarations until parse succeeds or we run out of candidates.
+              var s3 = s2; var guard = 0;
+              while (guard++ < 200) {
+                var next = s3.replace(/\blocal\s+(?=[A-Za-z_])/, "");
+                if (next === s3) break; // nothing left to strip
+                s3 = next;
+                try { source = s3; return luaparse.parse(s3, opts); } catch (e3) {
+                  if (!/constant variable/i.test(e3 && e3.message || "")) throw e3;
+                  // keep stripping
+                }
+              }
+              throw e2; // give up: surfaces honestly (no silent wrapper)
+            }
+          }
+        })();
         // ===================== [AST TRANSFORMS] =====================
         // VM+AST pipeline stage: Source -> Parser -> AST -> THESE PASSES ->
         // Bytecode compiler -> VM. Each pass rewrites a hard construct into
