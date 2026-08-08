@@ -2647,6 +2647,20 @@ end</textarea>
             "  return nil end;" +
             "return setmetatable({},{__index=function(_,k) return __lrpG(k) end," +
             "__newindex=function(_,k,val) __B[k]=val;pcall(function() __G[k]=val end) end}) end;";
+          // ===== SHARED REGISTRATION HELPER (v16 registration dedup) =====
+          // The bridge/global/getfenv/lazy-loader registration was identical text
+          // across all 268 islands. Emit it ONCE as _reg(sym,name,base,rf,loader);
+          // per-island values are passed as args. name/base are "" when anonymous.
+          const REG = "_" + Math.random().toString(36).slice(2, 7);
+          spillPrelude += "local function " + REG + "(sym,nm,bs,rf,ld) " +
+            "local __gg=(getgenv and getgenv());if __gg then __gg[sym]=rf end;" +
+            "_G[sym]=rf;" +
+            "local _G2=(getgenv and getgenv()) or _G;_G2.__LRP_BRIDGE=_G2.__LRP_BRIDGE or {};" +
+            "_G2.__LRP_BRIDGE[sym]=rf;" +
+            "if nm~=\"\" then _G2.__LRP_BRIDGE[nm]=rf;_G2.__LRP_BRIDGE[bs]=rf end;" +
+            "if getfenv then local __fe=getfenv();if __fe then __fe[sym]=rf end end;" +
+            "local _GL=(getgenv and getgenv()) or _G;_GL.__LRP_LOADERS=_GL.__LRP_LOADERS or {};" +
+            "_GL.__LRP_LOADERS[sym]=ld end;";
           const MAT = "_" + Math.random().toString(36).slice(2, 7);
           spillPrelude += "local function " + MAT + "(s) local f=" + LSV + " and " + LSV + "(s);" +
             "if setfenv and f then pcall(setfenv,f," + GV + ") end;return f and f() end;";
@@ -2687,23 +2701,10 @@ end</textarea>
             const SRC = "_" + Math.random().toString(36).slice(2, 7);
             let chunk = "do local " + SRC + "=\"" + numStr + "\";" +
               "local __rf=" + MAT + "(" + DEC + "(" + SRC + "," + seed + "," + R + "));" +
-              "local __gg=(getgenv and getgenv());if __gg then __gg[" + JSON.stringify(f.sym) + "]=__rf end;" +
-              "_G[" + JSON.stringify(f.sym) + "]=__rf;" +
-              // Mirror into the shared bridge under BOTH the spill symbol AND, when
-              // this island is a named function, its plain/base name so cross-island
-              // bare-name and method lookups resolve.
-              "do local _G2=(getgenv and getgenv()) or _G;_G2.__LRP_BRIDGE=_G2.__LRP_BRIDGE or {};_G2.__LRP_BRIDGE[" + JSON.stringify(f.sym) + "]=__rf;" +
-              (f.name ? ("_G2.__LRP_BRIDGE[" + JSON.stringify(f.name) + "]=__rf;" +
-                        // always also register the base name (after last '.' or ':')
-                        "_G2.__LRP_BRIDGE[" + JSON.stringify(f.name.split(/[.:]/).pop()) + "]=__rf;") : "") +
-              "end;" +
-              "if getfenv then local __fe=getfenv();if __fe then __fe[" + JSON.stringify(f.sym) + "]=__rf end end;" +
-              // LAZY LOADER: also expose a thunk that (re)builds this island's closure
-              // on demand, so a call site that fires BEFORE the eager registration
-              // (e.g. a top-level hookfunction/pcall callback at line 1) can still
-              // materialize it. Reuses SRC via closure capture -- no duplicate text.
-              "local _GL=(getgenv and getgenv()) or _G;_GL.__LRP_LOADERS=_GL.__LRP_LOADERS or {};" +
-              "_GL.__LRP_LOADERS[" + JSON.stringify(f.sym) + "]=function() return " + MAT + "(" + DEC + "(" + SRC + "," + seed + "," + R + ")) end;" +
+              REG + "(" + JSON.stringify(f.sym) + "," +
+                (f.name ? JSON.stringify(f.name) : "\"\"") + "," +
+                (f.name ? JSON.stringify(f.name.split(/[.:]/).pop()) : "\"\"") + "," +
+                "__rf,function() return " + MAT + "(" + DEC + "(" + SRC + "," + seed + "," + R + ")) end);" +
               "end;";
             spillPrelude += chunk;
           }
