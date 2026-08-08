@@ -74,8 +74,6 @@
     </script>
     <!-- (scope:false still passed on every parse call as a second layer) -->
     <script src="https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.min.js"></script>
-    <script src="luripe-constfix.js"></script>
-    
     <style>
       :root {
         --bg: #0a0a0a;
@@ -1400,15 +1398,16 @@ end</textarea>
           o=__lcont(o);
           return o;
         }
-        source = __lprep(source);
+        var __prepped = __lprep(source);
         // scope:false is the documented default that does NO const enforcement Ã¢â‚¬â€
         // this is the root-cause fix for "Assignment to constant variable" (thrown
         // by luaparse's scope pass on reassigned `local function` names). Explicit
         // here so the behaviour can never silently flip back on.
         const ast = (function __lrpResilientParse(){
           var opts = { ranges: true, scope: false };
+          var __psrc = (typeof __prepped !== "undefined" ? __prepped : source);
           // SOLUTION 1 (AST-stage neutraliser): try as-is first.
-          try { return luaparse.parse(source, opts); } catch (e1) {
+          try { return luaparse.parse(__psrc, opts); } catch (e1) {
             if (!/constant variable/i.test(e1 && e1.message || "")) throw e1;
             if (window.__luripeVMDebug) { try { warn && warn("[Luripe][parse] const error - applying AST-stage local-function neutraliser"); } catch(_){} }
             // SOLUTION 2 (blanket local-function strip): convert EVERY `local
@@ -1420,7 +1419,7 @@ end</textarea>
             var s2 = source
               .replace(/\blocal\s+([A-Za-z_]\w*)\s*;\s*\1\s*=\s*function\s*\(/g, "$1 = function(")
               .replace(/\blocal\s+function\s+([A-Za-z_][\w.]*)\s*\(/g, "$1 = function(");
-            try { source = s2; return luaparse.parse(s2, opts); } catch (e2) {
+            try { __psrc = s2; return luaparse.parse(s2, opts); } catch (e2) {
               if (!/constant variable/i.test(e2 && e2.message || "")) throw e2;
               // SOLUTION 3 (recursive local-strip): iteratively drop `local ` from
               // declarations until parse succeeds or we run out of candidates.
@@ -1429,7 +1428,7 @@ end</textarea>
                 var next = s3.replace(/\blocal\s+(?=[A-Za-z_])/, "");
                 if (next === s3) break; // nothing left to strip
                 s3 = next;
-                try { source = s3; return luaparse.parse(s3, opts); } catch (e3) {
+                try { __psrc = s3; return luaparse.parse(s3, opts); } catch (e3) {
                   if (!/constant variable/i.test(e3 && e3.message || "")) throw e3;
                   // keep stripping
                 }
