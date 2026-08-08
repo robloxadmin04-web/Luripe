@@ -1881,6 +1881,9 @@ end</textarea>
           } else if (node.type === "CallExpression") {
             compileCall(node);
             if (node.__pcallPacked) { const tmp = nextSlot++; emit(OP.STORE, tmp); emit(OP.LOAD, tmp); emitNumber(1); emit(OP.GETTABLE); }
+            // v29: a VM pcall(...) in single-value expression position pushes
+            // (ok, res, 2). Collapse to just ok: pop count, pop res, keep ok.
+            else if (node.__pcallVM) { emit(OP.POP); emit(OP.POP); }
           } else if (node.type === "TableConstructorExpression") {
             emit(OP.NEWTABLE);
             let arrayIndex = 1;
