@@ -230,18 +230,18 @@ var AST=(function(){
       switch(node.type){
         case "LocalStatement":
           if(node.init) walk(node.init, scope);
-          node.variables.forEach(function(v){ var nn=fresh(); scope[v.name]=nn; v.name=nn; });
+          node.variables.forEach(function(v){ if(v.name==="self")return; var nn=fresh(); scope[v.name]=nn; v.name=nn; });
           return;
         case "FunctionDeclaration":{
           if(node.identifier && node.isLocal){ var fn=fresh(); scope[node.identifier.name]=fn; node.identifier.name=fn; }
           else if(node.identifier) walk(node.identifier, scope);
           var s2=Object.create(scope);
-          node.parameters.forEach(function(p){ if(p.type==="Identifier"){var pn=fresh();s2[p.name]=pn;p.name=pn;} });
+          node.parameters.forEach(function(p){ if(p.type==="Identifier"&&p.name!=="self"){var pn=fresh();s2[p.name]=pn;p.name=pn;} });
           walk(node.body, s2); return;
         }
         case "FunctionExpression":{
           var s3=Object.create(scope);
-          node.parameters.forEach(function(p){ if(p.type==="Identifier"){var pn=fresh();s3[p.name]=pn;p.name=pn;} });
+          node.parameters.forEach(function(p){ if(p.type==="Identifier"&&p.name!=="self"){var pn=fresh();s3[p.name]=pn;p.name=pn;} });
           walk(node.body, s3); return;
         }
         case "ForNumericStatement":{
