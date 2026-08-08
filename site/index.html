@@ -1557,6 +1557,77 @@ end</textarea>
             if(Array.isArray(node.body)) node.body.forEach(lowerBlocks);
             return node;
           }
+          // ---- PASS 0: Luau desugar (v20) -- normalize Luau-only syntax into
+          //   constructs the compiler already handles, so functions containing
+          //   type annotations / +=,-= / continue no longer fall into the spill
+          //   catch-all. This is the single biggest spill-count reducer.
+          const dstats = { typesStripped:0, compoundDesugared:0, continueLowered:0 };
+          function stripTypes(node){
+            if(!node || typeof node!=='object') return node;
+            if(Array.isArray(node)){ node.forEach(stripTypes); return node; }
+            // luaparse attaches type info under a few keys depending on build.
+            // Drop them wherever present; they are compile-time only.
+            for(const key of ['typeAnnotation','returnTypes','varargType']){
+              if(node[key]!=null){ node[key]=null; dstats.typesStripped++; }
+            }
+            // Some builds attach per-identifier type as node.type==='Identifier'
+            // with a '.typeAnnotation'. Also strip params' annotations.
+            if(Array.isArray(node.parameters)){
+              for(const p of node.parameters){ if(p && p.typeAnnotation!=null){ p.typeAnnotation=null; dstats.typesStripped++; } }
+            }
+            for(const k in node){ if(k==='range'||k==='type') continue; stripTypes(node[k]); }
+            return node;
+          }
+          // Compound assignment: luaparse (Luau build) yields AssignmentStatement
+          // with operator like '+=' OR a dedicated 'CompoundAssignmentStatement'.
+          // Rewrite  a OP= b  ->  a = a OP b.
+          function desugarCompound(node){
+            if(!node || typeof node!=='object') return node;
+            if(Array.isArray(node)){ for(let i=0;i<node.length;i++) node[i]=desugarCompound(node[i]); return node; }
+            const isCompound = (node.type==='CompoundAssignmentStatement') ||
+                               (node.type==='AssignmentStatement' && typeof node.operator==='string' && /^(\+|-|\*|\/|%|\.\.|\^)=$/.test(node.operator));
+            if(isCompound){
+              const op = node.operator.slice(0,-1); // strip '='
+              const targets = node.variables || [node.target];
+              const values  = node.init || [node.value];
+              if(targets && targets.length===1 && values && values.length===1){
+                const tgt = targets[0];
+                node.type='AssignmentStatement';
+                node.operator='=';
+                node.variables=[tgt];
+                node.init=[{ type:'BinaryExpression', operator:op, left: JSON.parse(JSON.stringify(tgt)), right: values[0] }];
+                dstats.compoundDesugared++;
+              }
+            }
+            for(const k in node){ if(k==='range'||k==='type') continue; node[k]=desugarCompound(node[k]); }
+            return node;
+          }
+          // 'continue' -> goto a per-loop '__cont' label at the end of the loop body,
+          // which PASS 1 (lowerGoto) then turns into the state-machine loop the VM runs.
+          function lowerContinue(node, loopLabel){
+            if(!node || typeof node!=='object') return node;
+            if(Array.isArray(node)){ for(let i=0;i<node.length;i++) node[i]=lowerContinue(node[i], loopLabel); return node; }
+            const isLoop = node.type==='WhileStatement'||node.type==='RepeatStatement'||node.type==='NumericForStatement'||node.type==='ForNumericStatement'||node.type==='GenericForStatement'||node.type==='ForGenericStatement';
+            if(isLoop && Array.isArray(node.body)){
+              const lbl = '__lrp_cont_'+Math.random().toString(36).slice(2,7);
+              let used=false;
+              (function conv(list){
+                for(let i=0;i<list.length;i++){
+                  const st=list[i];
+                  if(st && st.type==='ContinueStatement'){ list[i]={type:'GotoStatement',label:{type:'Identifier',name:lbl}}; used=true; dstats.continueLowered++; }
+                  else lowerContinue(st, lbl); // nested loops get their own label
+                }
+              })(node.body);
+              if(used){ node.body.push({ type:'LabelStatement', label:{type:'Identifier',name:lbl} }); }
+              return node;
+            }
+            for(const k in node){ if(k==='range'||k==='type') continue; lowerContinue(node[k], loopLabel); }
+            return node;
+          }
+          stripTypes(root);
+          desugarCompound(root);
+          lowerContinue(root, null);
+          if (window.__luripeVMDebug) { try { warn && warn('[Luripe][AST] v20 desugar - types:'+dstats.typesStripped+' compound:'+dstats.compoundDesugared+' continue:'+dstats.continueLowered); } catch(e){} }
           lowerBlocks(root);
           if (window.__luripeVMDebug) { try { warn && warn('[Luripe][AST] goto lowered: '+stats.gotoLowered+', blocks: '+stats.blocksVisited); } catch(e){} }
           return root;
