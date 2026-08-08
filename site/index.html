@@ -2616,7 +2616,27 @@ end</textarea>
             "elseif c>=0xC0 then local c2=bs[i];i=i+1;" +
             "cp=bit32.bor(bit32.lshift(bit32.band(c,0x1F),6),bit32.band(c2,0x3F)) else cp=c end;" +
             "out[#out+1]=utf8 and utf8.char and utf8.char(cp) or string.char(cp) end;" +
-            "return table.concat(out) end;";
+            "return table.concat(out) end;" +
+            // ===== SHARED REGISTRAR (defined ONCE, called per island) =====
+            // Replaces ~15 lines of eager+lazy boilerplate that used to repeat per
+            // island. sym/name/base are strings (or nil). num/sd/rk are the encoded
+            // body + keys. Cuts per-island overhead from a full block to one call.
+            "local function __lrpReg(sym,nm,base,num,sd,rk) " +
+            "  local function build() local _s=" + DEC + "(num,sd,rk);" +
+            "    local _f=" + LSV + " and " + LSV + "(_s);" +
+            "    if setfenv and _f then pcall(setfenv,_f," + GV + ") end;" +
+            "    return _f and _f() end;" +
+            "  local __rf=build();" +
+            "  local __gg=(getgenv and getgenv());if __gg then __gg[sym]=__rf end;" +
+            "  _G[sym]=__rf;" +
+            "  local _G2=(getgenv and getgenv()) or _G;_G2.__LRP_BRIDGE=_G2.__LRP_BRIDGE or {};" +
+            "  _G2.__LRP_BRIDGE[sym]=__rf;" +
+            "  if nm then _G2.__LRP_BRIDGE[nm]=__rf end;" +
+            "  if base then _G2.__LRP_BRIDGE[base]=__rf end;" +
+            "  if getfenv then local __fe=getfenv();if __fe then __fe[sym]=__rf end end;" +
+            "  local _GL=(getgenv and getgenv()) or _G;_GL.__LRP_LOADERS=_GL.__LRP_LOADERS or {};" +
+            "  _GL.__LRP_LOADERS[sym]=build " +   // lazy loader reuses the same closure; data stored once
+            "end;";
           for (const f of spilledFns) {
             // Run each island under a shared _ENV: reads/writes of top-level names
             // (OOP tables, upvalues) resolve through __LRP_BRIDGE, with real globals
@@ -2667,31 +2687,17 @@ end</textarea>
               enc.push(e2); prev=e;
             }
             const numStr = enc.join(",");
-            let chunk = "do local _s=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
-              "local _f=" + LSV + " and " + LSV + "(_s);" +
-              "if setfenv and _f then pcall(setfenv,_f," + GV + ") end;" +
-              "local __rf=_f and _f();" +
-              "local __gg=(getgenv and getgenv());if __gg then __gg[" + JSON.stringify(f.sym) + "]=__rf end;" +
-              "_G[" + JSON.stringify(f.sym) + "]=__rf;" +
-              // Mirror into the shared bridge under BOTH the spill symbol AND, when
-              // this island is a named function, its plain/base name so cross-island
-              // bare-name and method lookups resolve.
-              "do local _G2=(getgenv and getgenv()) or _G;_G2.__LRP_BRIDGE=_G2.__LRP_BRIDGE or {};_G2.__LRP_BRIDGE[" + JSON.stringify(f.sym) + "]=__rf;" +
-              (f.name ? ("_G2.__LRP_BRIDGE[" + JSON.stringify(f.name) + "]=__rf;" +
-                        // always also register the base name (after last '.' or ':')
-                        "_G2.__LRP_BRIDGE[" + JSON.stringify(f.name.split(/[.:]/).pop()) + "]=__rf;") : "") +
-              "end;" +
-              "if getfenv then local __fe=getfenv();if __fe then __fe[" + JSON.stringify(f.sym) + "]=__rf end end end;";
-            // LAZY LOADER: also expose a thunk that (re)builds this island's closure
-            // on demand, so a call site that fires BEFORE the eager registration (e.g.
-            // a top-level hookfunction/pcall callback at line 1) can still materialize it.
-            chunk += "do local _GL=(getgenv and getgenv()) or _G;_GL.__LRP_LOADERS=_GL.__LRP_LOADERS or {};" +
-              "_GL.__LRP_LOADERS[" + JSON.stringify(f.sym) + "]=function() " +
-              "local _s2=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
-              "local _f2=" + LSV + " and " + LSV + "(_s2);" +
-              "if setfenv and _f2 then pcall(setfenv,_f2," + GV + ") end;" +
-              "return _f2 and _f2() end end;";
-            spillPrelude += chunk;
+            // SHARED-REGISTRAR: emit only the DATA + a one-line call to the shared
+            // __lrpReg function (defined once in the prelude head). This removes the
+            // ~15 lines of eager+lazy boilerplate that were repeated per island, and
+            // stores the encoded body ONCE (the lazy loader re-decodes from the same
+            // string via a captured thunk instead of embedding the data twice).
+            const baseName = f.name ? f.name.split(/[.:]/).pop() : null;
+            spillPrelude += "__lrpReg(" +
+              JSON.stringify(f.sym) + "," +
+              (f.name ? JSON.stringify(f.name) : "nil") + "," +
+              (baseName ? JSON.stringify(baseName) : "nil") + "," +
+              "\"" + numStr + "\"," + seed + "," + R + ");";
           }
         }
         return (
