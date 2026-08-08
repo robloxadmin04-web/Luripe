@@ -269,22 +269,22 @@ var AST=(function(){
   }
 
   /* --- continue -> goto rewrite (loop-aware, structural keyword scan) ---
-     Luau `continue` isn't valid in luaparse. We convert each loop that contains a
-     `continue` into: <loop> ... goto <lbl> ... ::<lbl>:: <end>. The label sits at
+     Luau 'continue' isn't valid in luaparse. We convert each loop that contains a
+     'continue' into: <loop> ... goto <lbl> ... ::<lbl>:: <end>. The label sits at
      the very end of the loop body so goto skips to the next iteration. We scan
      for/while/repeat blocks by keyword nesting depth (strings/comments already
      vaulted before this runs). */
   function continueToGoto(src){
-    // Tokenize into keyword tokens + text chunks. Keywords that OPEN an `end`-block:
-    // for/while/function/if/do. `repeat` opens an `until`-block. `elseif`/`else` do
+    // Tokenize into keyword tokens + text chunks. Keywords that OPEN an 'end'-block:
+    // for/while/function/if/do. 'repeat' opens an 'until'-block. 'elseif'/'else' do
     // NOT open a new block. We walk with a block stack; every frame that is a loop
-    // and contains a `continue` gets a unique label emitted right before its close.
+    // and contains a 'continue' gets a unique label emitted right before its close.
     // Single-pass but continue is retagged by scanning each frame's collected token
-    // indices AFTER we know the frame is a loop â€” so inline `if x then continue end`
-    // resolves to the ENCLOSING loop, not the inline `if`.
+    // indices AFTER we know the frame is a loop â€” so inline 'if x then continue end'
+    // resolves to the ENCLOSING loop, not the inline 'if'.
     var toks=src.split(/(\b(?:for|while|do|if|elseif|else|repeat|function|end|until)\b)/);
     var stack=[], lblN=0;
-    // record, per token index, which loop-label (if any) a `continue` in it maps to
+    // record, per token index, which loop-label (if any) a 'continue' in it maps to
     var contMap={}; // tokenIndex -> label
     var labelAt={}; // tokenIndex of the closing end/until -> label to inject before it
     function nearestLoop(){ for(var s=stack.length-1;s>=0;s--){ if(stack[s].kind==="loop") return stack[s]; } return null; }
@@ -357,10 +357,10 @@ var AST=(function(){
         "$1");
     }while(src!==prev);
 
-    // 4) `continue` -> goto (Luau-only -> Lua 5.3 goto, which luaparse accepts).
-    //    Loop-aware: for each loop body that contains `continue`, append a unique
-    //    label just before the loop's closing `end`/`until`, and rewrite `continue`
-    //    to `goto <label>`. We do a brace-less structural scan on keywords.
+    // 4) 'continue' -> goto (Luau-only -> Lua 5.3 goto, which luaparse accepts).
+    //    Loop-aware: for each loop body that contains 'continue', append a unique
+    //    label just before the loop's closing 'end'/'until', and rewrite 'continue'
+    //    to 'goto <label>'. We do a brace-less structural scan on keywords.
     src=continueToGoto(src);
 
     // 5) restore vaulted strings/comments
