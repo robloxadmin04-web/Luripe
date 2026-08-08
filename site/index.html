@@ -3221,9 +3221,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
-            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
+            "coroutines (coroutine.create/wrap/resume/yield) - VM opcodes exist but the per-thread runtime is NOT yet verified; route to Wrapper until confirmed end-to-end",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -3236,7 +3236,7 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "unsupported. " +
           "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
           "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
           "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
@@ -3804,9 +3804,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
-            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
+            "coroutines (coroutine.create/wrap/resume/yield) - VM opcodes exist but the per-thread runtime is NOT yet verified; route to Wrapper until confirmed end-to-end",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -3819,7 +3819,7 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "unsupported. " +
           "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
           "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
           "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
@@ -4387,9 +4387,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
-            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
+            "coroutines (coroutine.create/wrap/resume/yield) - VM opcodes exist but the per-thread runtime is NOT yet verified; route to Wrapper until confirmed end-to-end",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -4402,7 +4402,7 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "unsupported. " +
           "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
           "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
           "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
@@ -4970,9 +4970,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
-            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
+            "coroutines (coroutine.create/wrap/resume/yield) - VM opcodes exist but the per-thread runtime is NOT yet verified; route to Wrapper until confirmed end-to-end",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -4985,7 +4985,7 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "unsupported. " +
           "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
           "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
           "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
@@ -5553,9 +5553,9 @@ end</textarea>
             "ANY global function call (cloneref, getrenv, getgenv, hookfunction, UserSettings, getupvalues, require, warn, typeof, isfile, readfile, writefile, etc.) - ALL run in VM mode via global passthrough; NEVER flag a global call as unsupported",
             "setmetatable/getmetatable and metatables (__index, __newindex, operator metamethods) - OOP works",
             "raw access: rawget, rawset, rawequal, rawlen; assert, select, unpack",
-            "coroutines: coroutine.create/wrap/resume/yield/status (real VM opcodes - thread state is explicit data, suspend/resume via re-entering the dispatch loop)",
           ],
           unsupported: [
+            "coroutines (coroutine.create/wrap/resume/yield) - VM opcodes exist but the per-thread runtime is NOT yet verified; route to Wrapper until confirmed end-to-end",
             "goto / labels",
             "xpcall (use pcall instead)",
           ],
@@ -5568,7 +5568,7 @@ end</textarea>
           VM_CAPABILITIES.unsupported.join("\n- ") + "\n\n" +
           "IMPORTANT: pcall, error, break, repeat/until, setmetatable/getmetatable/metatables (OOP), " +
           "and Roblox userdata (Color3/UDim2/Vector/Enum) are all SUPPORTED now. Do NOT flag them as " +
-          "unsupported. coroutine.create/wrap/resume/yield/status are now SUPPORTED (real VM opcodes). " +
+          "unsupported. " +
           "STRICT RULES: (1) Only cite a construct in reasons/unsupported if it LITERALLY appears in the script source with a real line number. " +
           "(2) Do NOT speculate about constructs that might be called INTERNALLY by Roblox APIs - only flag what is written in the script source. " +
           "(3) Every entry in reasons MUST correspond to an item in unsupported; if unsupported is empty, recommend VM mode. " +
