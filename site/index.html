@@ -1281,6 +1281,16 @@ end</textarea>
           return s;
         }
         function __lprep(s){ let o=__gotoNorm(__lphExpand(s));
+          // ---- LOCAL-FUNCTION -> MUTABLE-LOCAL REWRITE (MUST RUN FIRST) ----
+          // luaparse marks `local function NAME` immutable and throws "Assignment
+          // to constant variable" at PARSE time when NAME is reassigned later. This
+          // MUST run before the type-strip passes: the `): Type` return-type regex
+          // eats into typed `local function f(a: T)` signatures, which then no
+          // longer match this rewrite and slip through as immutable bindings.
+          // Rewriting to `local NAME; NAME = function(` keeps recursion working
+          // (NAME declared before body) and makes the reassignment parse.
+          o=o.replace(/\blocal\s+function\s+([A-Za-z_]\w*)\s*\(/g,
+            function(m, name){ return "local " + name + "; " + name + " = function("; });
           // ---- STRONGER LUAU TYPE STRIP (ordered) ----
           // (a) Strip a typed RETURN annotation:  ) : Type  /  ) : {..}  / unions / optional / generics
           //     up to the start of the body (newline, 'do', 'return', 'end', '{').
