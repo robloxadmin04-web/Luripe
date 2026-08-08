@@ -824,11 +824,20 @@ end</textarea>
                      "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);"+
                      "if _br then for _ai=1,ac do local _an=args[_ai];if type(_an)=='string' then local _c=_br[_an];if _c~=nil then fn=_c;break end;local _bn=_an:match('([^.]+)$');if _bn and _br[_bn]~=nil then fn=_br[_bn];break end end end end;"+
                      "if fn==nil then local _gg=(getgenv and getgenv());if _gg then for _ai=1,ac do local _an=args[_ai];if type(_an)=='string' and _gg[_an]~=nil then fn=_gg[_an];break end end end end end;"+
+                     // ENHANCED cross-boundary resolution (last resort): scan every
+                     // registered spill in the bridge; if exactly one closure lives
+                     // there, use it. Also try _G / getrenv by each string arg. This
+                     // catches bare-local spilled calls whose slot was nil.
+                     "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);"+
+                     "if _br then local _only,_cnt=nil,0;for _k,_v in pairs(_br) do if type(_v)=='function' or (type(_v)=='table' and _v.__cl) then _cnt=_cnt+1;_only=_v end end;if _cnt==1 then fn=_only end end;"+
+                     "if fn==nil then for _ai=1,ac do local _an=args[_ai];if type(_an)=='string' then if _G[_an]~=nil then fn=_G[_an];break end;local _rn=(getrenv and getrenv());if _rn and _rn[_an]~=nil then fn=_rn[_an];break end end end end end;"+
                      "if type(fn)=='table' and fn.__cl then "+
                        "local cf={};for k=1,ac do cf[k-1]=args[k] end;"+
                        N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+
                        F+"=cf;"+N.upvals+"=fn.ups;"+CT+"."+CF.ip+"=fn.addr;"+CT+"."+CF.jumped+"=true "+
-                     "elseif fn==nil then error('Luripe: could not resolve function to call (spilled cross-boundary) - consider Wrapper mode for this script') "+
+                     // NON-FATAL: unresolved edge pushes nil (Lua's own behaviour for a
+                     // missing value) and beacons under Verbose, instead of killing the run.
+                     "elseif fn==nil then "+(VM_DEBUG?"warn('[Luripe] CALLR unresolved -> nil (non-fatal)');":"")+P+"(nil) "+
                      "else "+P+"(fn((table.unpack or unpack)(args,1,ac))) end",
           RCALL:     "local ac=a;local args={};for k=ac,1,-1 do args[k]="+O+"() end;local fn="+O+"();"+
                      "if fn==nil then local _br=(getgenv and getgenv() and getgenv().__LRP_BRIDGE) or (_G.__LRP_BRIDGE);"+
