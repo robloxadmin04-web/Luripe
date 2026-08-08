@@ -1297,6 +1297,97 @@ end</textarea>
         }
         source = __lprep(source);
         const ast = luaparse.parse(source, { ranges: true });
+        // ===================== [AST TRANSFORMS] =====================
+        // VM+AST pipeline stage: Source -> Parser -> AST -> THESE PASSES ->
+        // Bytecode compiler -> VM. Each pass rewrites a hard construct into
+        // equivalent nodes the VM already supports, so it stays virtualized
+        // instead of spilling to a loadstring closure. Passes are composable
+        // and idempotent; each returns a (possibly new) node.
+        function __astTransform(root){
+          const stats = { gotoLowered:0, blocksVisited:0 };
+          // generic child-walker: applies fn bottom-up to every node.
+          function walk(node, fn){
+            if(!node || typeof node!=='object') return node;
+            if(Array.isArray(node)){ for(let i=0;i<node.length;i++) node[i]=walk(node[i],fn); return node; }
+            for(const k in node){ if(k==='range'||k==='type') continue; node[k]=walk(node[k],fn); }
+            return fn(node);
+          }
+          // ---- PASS 1: goto/label -> state-machine loop ----
+          // A block containing labels + gotos is rewritten into:
+          //   local __st = <entry>; while __st ~= 0 do if __st==1 then ...seg1
+          //   __st=<next> elseif __st==2 then ...seg2 __st=<next> ... end end
+          // Each 'goto L' becomes __st = <segId of L>. This uses only while/if/
+          // local-assign, all of which the VM virtualizes. Falls through: a
+          // block with no labels is returned untouched (zero overhead).
+          function lowerGoto(block){
+            if(!block || !Array.isArray(block.body)) return block;
+            const body = block.body;
+            // collect label positions
+            const labels = {}; let hasLabel=false;
+            for(let i=0;i<body.length;i++){ if(body[i] && body[i].type==='LabelStatement'){ labels[body[i].label.name]=true; hasLabel=true; } }
+            if(!hasLabel) return block;
+            // segment the body at each label; seg 1 = entry .. first label.
+            const segs = []; let cur = [];
+            const labelSeg = {}; // labelName -> seg index (1-based)
+            segs.push(cur); // seg index 0 -> id 1
+            for(const st of body){
+              if(st && st.type==='LabelStatement'){ cur=[]; segs.push(cur); labelSeg[st.label.name]=segs.length; continue; }
+              cur.push(st);
+            }
+            const N = segs.length;
+            const stName = '__lrp_st_'+ (Math.random().toString(36).slice(2,7));
+            // rewrite goto -> assignment __st = <targetSeg>; and default fall-
+            // through appends __st = <nextSeg> (or 0 to exit on the last seg).
+            function mkNum(v){ return { type:'NumericLiteral', value:v, raw:String(v) }; }
+            function mkAssignSt(v){ return { type:'AssignmentStatement', variables:[{type:'Identifier',name:stName}], init:[mkNum(v)] }; }
+            function convGoto(list, segId){
+              const out = [];
+              for(const st of list){
+                if(st && st.type==='GotoStatement'){ const tgt=labelSeg[st.label.name]; if(tgt){ stats.gotoLowered++; out.push(mkAssignSt(tgt)); out.push({type:'BreakStatement'}); continue; } }
+                out.push(st);
+              }
+              // implicit fall-through to the next segment (last seg -> exit 0)
+              const next = (segId < N) ? (segId+1) : 0;
+              out.push(mkAssignSt(next));
+              return out;
+            }
+            // build the if/elseif chain inside a repeat-once wrapper per seg so
+            // 'break' (from a converted goto) exits only the seg dispatch step.
+            const clauses = [];
+            for(let s=0;s<N;s++){
+              const segId = s+1;
+              const inner = convGoto(segs[s].slice(), segId);
+              // wrap seg body in 'repeat <body> until true' so BreakStatement
+              // from a goto skips the rest of THIS seg, then the while re-dispatches.
+              const wrapped = { type:'RepeatStatement', condition:{type:'BooleanLiteral',value:true,raw:'true'}, body: inner };
+              const cond = { type:'BinaryExpression', operator:'==', left:{type:'Identifier',name:stName}, right:mkNum(segId) };
+              clauses.push({ condition: cond, body: [ wrapped ] });
+            }
+            const ifStmt = { type:'IfStatement', clauses: clauses.map((c,i)=> ({ type: i===0?'IfClause':'ElseifClause', condition:c.condition, body:c.body })) };
+            const whileBody = [ ifStmt ];
+            const whileStmt = { type:'WhileStatement', condition:{ type:'BinaryExpression', operator:'~=', left:{type:'Identifier',name:stName}, right:mkNum(0) }, body: whileBody };
+            const localDecl = { type:'LocalStatement', variables:[{type:'Identifier',name:stName}], init:[mkNum(1)] };
+            block.body = [ localDecl, whileStmt ];
+            return block;
+          }
+          // apply lowerGoto to every block-bearing node (function bodies, loop
+          // bodies, if-clauses, do-blocks, and the chunk itself).
+          function lowerBlocks(node){
+            if(!node || typeof node!=='object') return node;
+            if(Array.isArray(node)){ node.forEach(lowerBlocks); return node; }
+            if(Array.isArray(node.body)){ stats.blocksVisited++; lowerGoto(node); }
+            if(node.clauses) node.clauses.forEach(lowerBlocks);
+            for(const k in node){ if(k==='range'||k==='type'||k==='body'||k==='clauses') continue; lowerBlocks(node[k]); }
+            if(Array.isArray(node.body)) node.body.forEach(lowerBlocks);
+            return node;
+          }
+          lowerBlocks(root);
+          if (window.__luripeVMDebug) { try { warn && warn('[Luripe][AST] goto lowered: '+stats.gotoLowered+', blocks: '+stats.blocksVisited); } catch(e){} }
+          return root;
+        }
+        // =================== [/AST TRANSFORMS] ======================
+        // Run the AST transform stage before any bytecode is emitted.
+        __astTransform(ast);
         const SRC = source; // kept for per-function spill (hybrid fallback)
         // Extract the exact original text of an AST node via its char range.
         const nodeSource = (node) => (node && node.range) ? SRC.slice(node.range[0], node.range[1]) : null;
