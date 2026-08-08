@@ -1910,6 +1910,19 @@ end</textarea>
             if (scope.__upvals && scope.__upvals[target.name] !== undefined) {
               valueEmitter(); emit(OP.STOREUP, scope.__upvals[target.name]);
             } else {
+              // A `local function NAME` that is later reassigned (NAME = ...) must
+              // become a mutable local slot, not a fixed function binding â€” else
+              // the parser/compiler treats it as constant and the whole file drops
+              // to wrapper. Promote it to a real slot and drop the fixed binding.
+              if (functions[target.name] !== undefined) {
+                const fslot = (functions[target.name].closureSlot !== undefined)
+                  ? functions[target.name].closureSlot
+                  : slotFor(target.name);
+                functions[target.name] = { closureSlot: fslot };
+                if (scope[target.name] === undefined) scope[target.name] = fslot;
+                valueEmitter(); emit(OP.STORE, fslot);
+                return;
+              }
               const slot = slotFor(target.name);
               // Cell-backed local write -> STORECELL; plain local -> STORE.
               if (scope.__cells && scope.__cells.has(slot)) { valueEmitter(); emit(OP.STORECELL, slot); }
