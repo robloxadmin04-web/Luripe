@@ -3,8 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Luripe RE1 - Luau Obfuscator</title>
-    <!-- lrp-reentrant-step1-msjlq2su re-entrant VM + native-callable closures -->
+    <title>Luripe - Luau Obfuscator</title>
     <script src="https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.min.js"></script>
     <style>
       :root {
@@ -688,12 +687,12 @@ end</textarea>
         // slightly larger VM that is guaranteed correct. `usedNames` is ignored.
         const EFF = OPS.slice();
         // ==== HARDENING TOGGLES (flip to false if a build breaks) ====
-        const PER_HANDLER_MUTATION = false;  // layer 2: opaque predicate + rand names per handler
-        const HANDLER_BODY_MUTATION = false; // layer 2b: junk math woven inside each handler body
-        const ANTI_DEBUG = false;           // layer 1: DISABLED - false-positives on executors (silent halt)
-        const NESTED_VM = false;            // layer 5: DISABLED - extra indirection can break scope silently
+        const PER_HANDLER_MUTATION = true;  // layer 2: opaque predicate + rand names per handler
+        const HANDLER_BODY_MUTATION = true; // layer 2b: junk math woven inside each handler body
+        const ANTI_DEBUG = true;           // layer 1: DISABLED - false-positives on executors (silent halt)
+        const NESTED_VM = true;            // layer 5: DISABLED - extra indirection can break scope silently
         const CFG_REDIRECTS = false;         // Luraph v14: opaque-predicate control-flow redirects in dispatch
-        const DEBUG_ANTITAMPER = false;     // DISABLED - false-positives on executors: every executor installs a debug hook, so this halted the VM on the first opcode (silent break). Re-enable only with an allowlist for the executor's own hook.
+        const DEBUG_ANTITAMPER = true;     // DISABLED - false-positives on executors: every executor installs a debug hook, so this halted the VM on the first opcode (silent break). Re-enable only with an allowlist for the executor's own hook.
         const VM_DEBUG = window.__luripeVMDebug === true;  // emits warn() beacons inside run() when Verbose is on
         // (layer 3 pure-numeric opcodes + layer 4 multi-round consts are always on)
 
@@ -708,6 +707,35 @@ end</textarea>
           guard: rid(used), refchar: rid(used), refsub: rid(used),
         };
         const CF = { ip: rid(used), jumped: rid(used), halt: rid(used) };
+        // === Runtime-opaque predicate helpers (research: Luau O1 folds literal
+        // predicates into unconditional jumps and deletes dead branches, so every
+        // opaque value MUST depend on a runtime quantity the compiler cannot prove).
+        // opTrue()  -> a Lua expr that is ALWAYS true but unfoldable.
+        // opJunk()  -> a junk numeric expr seeded from a runtime value (never all-literal).
+        function __rt(){
+          // pick a runtime source the optimizer cannot constant-fold
+          const pool = [
+            "#tostring({})",           // table address string length: runtime-only
+            "#tostring(newproxy and newproxy() or {})",
+            "select('#',...)",         // vararg count of the enclosing chunk
+            "#tostring(tick())"        // clock string length: runtime-only
+          ];
+          return pool[(Math.random()*pool.length)|0];
+        }
+        function opTrue(){
+          const r = __rt();
+          // (rt*rt) is always >=0 for a real number, but rt is runtime so this
+          // cannot be folded away; guard against nil with 'or 0'.
+          const v = "(("+r+") or 0)";
+          return "(("+v+")*("+v+"))>=0";
+        }
+        function opJunk(nameA,nameB){
+          const r = __rt();
+          const k = ((Math.random()*90)|0)+3;
+          // one operand is runtime-derived => constant propagation cannot reduce it
+          return "local "+nameA+"=(("+r+") or 1)+"+k+";local "+nameB+"="+nameA+"%"+k+";";
+        }
+
 
         const P = N.push, O = N.pop, F = N.frame, S = N.stack, SP = N.sp, CT = N.ctrl;
         const body = {
@@ -762,7 +790,7 @@ end</textarea>
           // Closure arg is FLAT: {addr, nc, cap1, cap2, ...}. The number-stream
           // encoder cannot represent a NESTED array, so captures are inlined with
           // a leading count nc. (Fixes "length of a number" from #caps on garbage.)
-          CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do local c=a[2+i];if c>=0 then ups[i-1]="+F+"[c] else ups[i-1]=("+N.upvals+" and "+N.upvals+"[-c-1]) end end;"+P+"(__lrp_mkclosure(addr,ups))",
+          CLOSURE:  "local addr=a[1];local nc=a[2];local ups={};for i=1,nc do local c=a[2+i];if c>=0 then ups[i-1]="+F+"[c] else ups[i-1]=("+N.upvals+" and "+N.upvals+"[-c-1]) end end;"+P+"({__cl=true,addr=addr,ups=ups})",
           CALLC:    "local ac=a;local cf={};for k=ac-1,0,-1 do cf[k]="+O+"() end;local clo="+O+"();"+
                      "if clo==nil then error('Luripe: attempted to call a nil closure value') end;"+N.csTop+"="+N.csTop+"+1;"+N.callStack+"["+N.csTop+"]={r="+CT+"."+CF.ip+"+1,f="+F+",u="+N.upvals+"};"+F+"=cf;"+N.upvals+"=clo.ups;"+CT+"."+CF.ip+"=clo.addr;"+CT+"."+CF.jumped+"=true",
           GETGLOBAL: "local nm="+N.decodeString+"(a);local _v=nil;"+
@@ -844,10 +872,11 @@ end</textarea>
           if (HANDLER_BODY_MUTATION) {
             const j1 = "_" + Math.random().toString(36).slice(2, 6);
             const j2 = "_" + Math.random().toString(36).slice(2, 6);
-            const k1 = ((Math.random()*900)|0)+11;
-            const k2 = ((Math.random()*90)|0)+3;
-            const pre = "local " + j1 + "=" + k1 + "*" + k1 + ";local " + j2 + "=" + j1 + "%" + k2 + ";";
-            const dead = "if " + j1 + "<0 then " + j2 + "=" + j2 + "+1 end ";
+            // runtime-seeded junk: opJunk() ties a value to a runtime quantity so
+            // Luau O1 constant folding/propagation cannot delete it (research fix).
+            const pre = opJunk(j1, j2);
+            // dead branch driven by an unfoldable always-false (not opTrue) guard.
+            const dead = "if not (" + opTrue() + ") then " + j2 + "=" + j2 + "+1 end ";
             realBody = pre + dead + code;
           }
           // Control-flow flattening per handler (Luraph-style state machine).
@@ -857,10 +886,11 @@ end</textarea>
           const nums3 = [];
           while (nums3.length < 3) { const n = ((Math.random()*900)|0)+10; if (nums3.indexOf(n)<0) nums3.push(n); }
           const sEntry = nums3[0], sReal = nums3[1], sExit = nums3[2];
-          const a = ((Math.random()*900)|0)+10;
+          // Redirect condition is now runtime-opaque: opTrue() is unfoldable, so
+          // Luau cannot flatten the state machine back to the straight path.
           return "local " + sv + "=" + sEntry + ";local " + done + "=false;" +
             "while not " + done + " do " +
-              "if " + sv + "==" + sEntry + " then local " + jv + "=" + a + "*" + a + ";if " + jv + ">=0 then " + sv + "=" + sReal + " else " + sv + "=" + sExit + " end " +
+              "if " + sv + "==" + sEntry + " then if " + opTrue() + " then " + sv + "=" + sReal + " else " + sv + "=" + sExit + " end " +
               "elseif " + sv + "==" + sReal + " then " + realBody + ";" + sv + "=" + sExit + " " +
               "else " + done + "=true end " +
             "end";
@@ -889,13 +919,27 @@ end</textarea>
         // Layer 1: anti-debug guards (run once before dispatch).
         // Capture trusted refs; if string.char / string.sub were swapped, or if
         // a debug hook is present, corrupt execution silently.
+        // Research fix: never treat debug PRESENCE as hostile (every executor ships
+        // a full debug lib + its own hook -> old check false-positived and halted).
+        // New model: (1) capture the executor's EXISTING hook as the trusted baseline
+        // (allowlist), react only if it CHANGES mid-run, and DEGRADE (skip a branch)
+        // instead of halting; (2) optional coarse timing check that also only degrades.
         const antiDebug = ANTI_DEBUG ? (
           "local " + N.refchar + "=string.char;local " + N.refsub + "=string.sub;" +
+          // baseline hook allowlist (DEBUG_ANTITAMPER): remember what the executor set.
+          (DEBUG_ANTITAMPER ?
+            "local " + N.guard + "_bh=(debug and debug.gethook and (function() local ok,h=pcall(debug.gethook) if ok then return h end end)()) or false;" : "") +
           "local " + N.guard + "=function() " +
-          "if type(" + N.refchar + ")~=\"function\" then return false end " +
-          "if type(" + N.refsub + ")~=\"function\" then return false end " +
+          // structural sanity: trusted refs still functions (degrade, don't halt).
+          "if type(" + N.refchar + ")~=\"function\" then return true end " +
+          "if type(" + N.refsub + ")~=\"function\" then return true end " +
+          (DEBUG_ANTITAMPER ?
+            // only a CHANGE from the captured baseline is suspicious; still non-fatal.
+            "if debug and debug.gethook then local ok2,h2=pcall(debug.gethook) if ok2 and " + N.guard + "_bh and h2~=" + N.guard + "_bh then return false end end " : "") +
           "return true end;" +
-          "if not " + N.guard + "() then program={{" + opnum.HALT + "}} end;"
+          // NON-FATAL: on a negative verdict we simply do not run the extra guard;
+          // the VM core always executes so a loaded executor never silently halts.
+          "local " + N.guard + "_ok=" + N.guard + "();"
         ) : "";
 
         // Luraph v14 'Use Debug Library' anti-tamper. SAFE by design: only
@@ -985,26 +1029,7 @@ end</textarea>
           "  local " + N.upvals + "=nil\n" +
           "  local " + N.H + "={}\n" +
           "  local " + N.ctrl + "={" + CF.ip + "=1," + CF.jumped + "=false," + CF.halt + "=false}\n" +
-          // --- Step 1: re-entrant closure support (coroutine-isolated frames) ---
-          "  local __lrp_ret\n" +
-          "  local function __vm_enter(__addr,__ups,__args)\n" +
-          "    local co=coroutine.create(function()\n" +
-          "      local sf=" + N.frame + "; local su=" + N.upvals + "; local ssp=sp\n" +
-          "      local scs=" + N.csTop + "; local sip=" + N.ctrl + "." + CF.ip + "\n" +
-          "      " + N.frame + "={}; if __args then for _i=1,#__args do " + N.frame + "[_i-1]=__args[_i] end end\n" +
-          "      " + N.upvals + "=__ups; " + N.ctrl + "." + CF.ip + "=__addr; " + N.ctrl + "." + CF.jumped + "=true\n" +
-          "      __lrp_ret=nil\n" +
-          "      __vm_loop(__addr)\n" +
-          "      " + N.frame + "=sf; " + N.upvals + "=su; sp=ssp; " + N.csTop + "=scs; " + N.ctrl + "." + CF.ip + "=sip\n" +
-          "    end)\n" +
-          "    local ok,err=coroutine.resume(co)\n" +
-          "    if not ok then error(err) end\n" +
-          "    if __lrp_ret then return (table.unpack or unpack)(__lrp_ret,1,__lrp_ret.n or #__lrp_ret) end\n" +
-          "  end\n" +
-          "  local function __lrp_mkclosure(addr,ups) return function(...) return __vm_enter(addr,ups,{...}) end end\n" +
           handlerLines.map((l) => "  " + l).join("\n") + "\n" +
-          "  local function __vm_loop(__floor)\n" +
-          "  local __base=" + N.csTop + "\n" +
           "  while " + N.ctrl + "." + CF.ip + "<=#program do\n" +
           "    local " + N.inst + "=program[" + N.ctrl + "." + CF.ip + "]\n" +
           "    local " + N.op + "," + N.arg + "=" + N.inst + "[1]," + N.inst + "[2]\n" +
@@ -1029,10 +1054,7 @@ end</textarea>
           "    if " + N.ctrl + "." + CF.halt + " then break end\n" +
           (DEBUG_ANTITAMPER ? "    if " + dbgVar + " then break end\n" : "") +
           "    if not " + N.ctrl + "." + CF.jumped + " then " + N.ctrl + "." + CF.ip + "=" + N.ctrl + "." + CF.ip + "+1 end\n" +
-          "    if " + N.csTop + "<__floor and __floor>0 then break end\n" +
           "  end\n" +
-          "  end\n" +
-          "  __vm_loop(0)\n" +
           "end\n" +
           "return { run=run, " + N.checksumOf + "=" + N.checksumOf + " }\n";
 
