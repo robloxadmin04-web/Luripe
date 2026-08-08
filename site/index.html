@@ -1410,27 +1410,14 @@ end</textarea>
           });
           // ---- compound assignment (unchanged) ----
           o=o.replace(/(^|[\r\n;]|\bthen\b|\bdo\b|\belse\b)(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]\r\n]+\])*)\s*(\.\.|[+\-*/%^])=\s*/g,function(m,p,ws,lv,op){return p+ws+lv+" = "+lv+" "+op+" ";});
-          o=__lcont(o);
-          // FINAL leftover-continue pass: __lcont can miss a `continue` buried in
-          // deeply nested blocks. Any survivor would reach luaparse (Lua 5.1) and
-          // throw a parse error (mis-reported by AI-diagnosis as a const error).
-          // For each remaining `continue`, wrap its enclosing loop body in
-          // repeat..until true and turn the continue into break. Proven to clear all.
+          // v24: run __lcont to a fixpoint. __lcont handles ONE innermost loop per
+          // pass and re-scans, so repeated calls clear all continues, including
+          // `if cond then continue end`, WITHOUT the old buggy lastIndexOf(' do')
+          // sweep that mis-anchored on if/then and produced `if <cond> break`
+          // (the "'then' expected near 'break'" failure).
           (function(){
-            var CRE=/\bcontinue\b/g, m, guard=0;
-            while((m=CRE.exec(o)) && guard++<500){
-              var doIdx=o.lastIndexOf(' do', m.index);
-              if(doIdx<0) break;
-              var depth=1, tokRe=/\b(do|then|function|repeat|end|until)\b/g, t, endIdx=-1;
-              tokRe.lastIndex=doIdx+3;
-              while((t=tokRe.exec(o))){ var w=t[1];
-                if(w==='do'||w==='then'||w==='function'||w==='repeat')depth++;
-                else { depth--; if(depth===0){ endIdx=t.index; break; } } }
-              if(endIdx<0) break;
-              var body=o.slice(doIdx+3,endIdx).replace(/\bcontinue\b/g,'break');
-              o=o.slice(0,doIdx+3)+' repeat '+body+' until true '+o.slice(endIdx);
-              CRE.lastIndex=0;
-            }
+            var prev=null, guard=0;
+            do { prev=o; o=__lcont(o); guard++; } while(o!==prev && /\bcontinue\b/.test(o) && guard<2000);
           })();
 
           // ---- INLINE-IF EXPRESSION -> IIFE (v23, pre-parse) ----
