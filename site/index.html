@@ -800,6 +800,11 @@ end</textarea>
                      "if _v==nil and getfenv then local _ok2,_fe=pcall(getfenv,0);if _ok2 and _fe then _v=_fe[nm] end end;"+
                      "if _v==nil and getfenv then local _ok3,_fe1=pcall(getfenv,1);if _ok3 and _fe1 then _v=_fe1[nm] end end;"+
                      "if _v==nil then _v=_G[nm] end;"+
+                     // SELF-LOADING SPILL: if still nil and this is a spill symbol,
+                     // materialize the island NOW via its lazy loader and cache it.
+                     "if _v==nil then local _gl=((getgenv and getgenv() and getgenv().__LRP_LOADERS) or _G.__LRP_LOADERS);"+
+                     "if _gl and _gl[nm] then local _ok,_r=pcall(_gl[nm]);if _ok and _r~=nil then _v=_r;"+
+                     "local _gg2=(getgenv and getgenv()) or _G;_gg2[nm]=_v;_gg2.__LRP_BRIDGE=_gg2.__LRP_BRIDGE or {};_gg2.__LRP_BRIDGE[nm]=_v end end end;"+
                      P+"(_v)",
           // PARTIAL-VM bridge: publish a VM local into the shared bridge table so a
           // spilled callback (real Lua closure) can read/update it across the boundary.
@@ -2499,6 +2504,15 @@ end</textarea>
                         "_G2.__LRP_BRIDGE[" + JSON.stringify(f.name.split(/[.:]/).pop()) + "]=__rf;") : "") +
               "end;" +
               "if getfenv then local __fe=getfenv();if __fe then __fe[" + JSON.stringify(f.sym) + "]=__rf end end end;";
+            // LAZY LOADER: also expose a thunk that (re)builds this island's closure
+            // on demand, so a call site that fires BEFORE the eager registration (e.g.
+            // a top-level hookfunction/pcall callback at line 1) can still materialize it.
+            chunk += "do local _GL=(getgenv and getgenv()) or _G;_GL.__LRP_LOADERS=_GL.__LRP_LOADERS or {};" +
+              "_GL.__LRP_LOADERS[" + JSON.stringify(f.sym) + "]=function() " +
+              "local _s2=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
+              "local _f2=" + LSV + " and " + LSV + "(_s2);" +
+              "if setfenv and _f2 then pcall(setfenv,_f2," + GV + ") end;" +
+              "return _f2 and _f2() end end;";
             spillPrelude += chunk;
           }
         }
