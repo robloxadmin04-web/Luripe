@@ -2089,14 +2089,33 @@ end</textarea>
           // a following multi-assign is rewritten (see compileStatement) to read
           // fields out of it. A bare `pcall(...)` call-statement just discards it.
           if (node.base && node.base.type === "Identifier" && node.base.name === "pcall") {
+            // v28: virtualize pcall through the real OP.PCALL opcode (Stage 3)
+            // instead of spilling to a native island. Emit the callee's args,
+            // then the callee LAST (PCALL pops fn after args, like CALLR), then
+            // OP.PCALL with the callee's OWN arg count. The opcode pushes
+            // (ok, res, 2) = flat (values..., n); the existing STOREMULTI
+            // multi-assign path unpacks it, so we must NOT set __pcallPacked
+            // (that path is for a packed table). Bare pcall(...) as a statement
+            // leaves 3 stack items -> compileStatement pops them (see EDIT 2).
+            const callee = node.arguments[0];
+            if (callee) {
+              const rest = node.arguments.slice(1);
+              // callee inside pcall stays a VM closure (native=false), so a
+              // pcall(function() ... end) callback is virtualized, not spilled.
+              for (const a of rest) compileArg(a, false);
+              compileExpr(callee);            // callee pushed LAST -> popped FIRST
+              emit(OP.PCALL, rest.length);    // -> pushes (ok, res, 2)
+              node.__pcallVM = true;          // mark for bare-statement cleanup
+              return;
+            }
+            // Fallback (no callee, e.g. pcall() with no args): native island.
             const src = nodeSource(node);
             if (src) {
               const gsym = '__lrp_spill_' + (__spillId++);
-              // island: run the real pcall, pack all results into a table with count.
               spilledFns.push({ sym: gsym, src: 'return function() local __t=table.pack(' + src + '); return __t end', reason: 'pcall-packed' });
-              emit(OP.GETGLOBAL, encodeString(gsym)); // push the island closure
-              emit(OP.CALLR, 0);                         // call it -> pushes packed table
-              node.__pcallPacked = true;                 // mark for STOREMULTI rewrite
+              emit(OP.GETGLOBAL, encodeString(gsym));
+              emit(OP.CALLR, 0);
+              node.__pcallPacked = true;
               return;
             }
           }
@@ -2316,6 +2335,8 @@ end</textarea>
           } else if (node.type === "CallStatement") {
             compileCall(node.expression);
             if (node.expression && node.expression.__pcallPacked) emit(OP.POP);
+            // v28: a discarded VM pcall(...) leaves (ok, res, n) = 3 items.
+            else if (node.expression && node.expression.__pcallVM) { emit(OP.POP); emit(OP.POP); emit(OP.POP); }
           } else if (node.type === "IfStatement") {
             const endJumps = [];
             for (const clause of node.clauses) {
