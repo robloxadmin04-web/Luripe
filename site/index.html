@@ -2667,7 +2667,7 @@ end</textarea>
               enc.push(e2); prev=e;
             }
             const numStr = enc.join(",");
-            const chunk = "do local _s=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
+            let chunk = "do local _s=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
               "local _f=" + LSV + " and " + LSV + "(_s);" +
               "if setfenv and _f then pcall(setfenv,_f," + GV + ") end;" +
               "local __rf=_f and _f();" +
@@ -3014,7 +3014,7 @@ end</textarea>
           // mode is allowed to fall back to wrapper.
           var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
           if (mode === "vm") {
-            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)" + "\n-- --- STACK (debug) ---\n-- " + String((e && e.stack) || "(no stack available)").split("\n").join("\n-- ");
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
             setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
             if (window.console) console.error("[Luripe] VM compile failed:", e);
           } else {
@@ -3706,7 +3706,7 @@ end</textarea>
           // mode is allowed to fall back to wrapper.
           var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
           if (mode === "vm") {
-            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)" + "\n-- --- STACK (debug) ---\n-- " + String((e && e.stack) || "(no stack available)").split("\n").join("\n-- ");
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
             setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
             if (window.console) console.error("[Luripe] VM compile failed:", e);
           } else {
@@ -4289,7 +4289,7 @@ end</textarea>
           // mode is allowed to fall back to wrapper.
           var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
           if (mode === "vm") {
-            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)" + "\n-- --- STACK (debug) ---\n-- " + String((e && e.stack) || "(no stack available)").split("\n").join("\n-- ");
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
             setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
             if (window.console) console.error("[Luripe] VM compile failed:", e);
           } else {
@@ -4872,7 +4872,7 @@ end</textarea>
           // mode is allowed to fall back to wrapper.
           var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
           if (mode === "vm") {
-            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)" + "\n-- --- STACK (debug) ---\n-- " + String((e && e.stack) || "(no stack available)").split("\n").join("\n-- ");
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
             setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
             if (window.console) console.error("[Luripe] VM compile failed:", e);
           } else {
@@ -5455,7 +5455,7 @@ end</textarea>
           // mode is allowed to fall back to wrapper.
           var __ln = (e && (e.line != null)) ? (" [line " + e.line + "]") : "";
           if (mode === "vm") {
-            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)" + "\n-- --- STACK (debug) ---\n-- " + String((e && e.stack) || "(no stack available)").split("\n").join("\n-- ");
+            outEl.value = "-- Luripe VM compile failed" + __ln + "\n-- " + (e && e.message ? e.message : String(e)) + "\n-- (VM mode was explicitly selected; no silent wrapper fallback.)";
             setStatus("VM failed" + __ln + ": " + (e && e.message ? e.message : String(e)), "err");
             if (window.console) console.error("[Luripe] VM compile failed:", e);
           } else {
