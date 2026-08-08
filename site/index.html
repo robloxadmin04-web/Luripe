@@ -2595,10 +2595,16 @@ end</textarea>
           // mirror every spilled symbol into _G too, so a VM GETGLOBAL that falls
           // through to _G still finds islands registered under getgenv().
           // runtime decoder: args = (numbers-string, seed, R) -> source string
+          // Spilled-function source bytes were comma+decimal encoded (same waste
+          // as the old bytecode blob: ~3.3 bits/char). Reuse the same base-90
+          // alphabet/packer already defined above for the bytecode stream --
+          // each byte here is 0-255, so this is at most 2 chars instead of up to 3.
+          spillPrelude += "local _sbA=\"" + NUM_ALPHA.replace(/\\/g,"\\\\").replace(/"/g,"\\\"") + "\";" +
+            "local _sbM={};for _z=1,#_sbA do _sbM[_sbA:sub(_z,_z)]=_z-1 end;";
           spillPrelude += "local function " + DEC + "(s,sd,rk) " +
             "local PR,OF,CM=167,7,0xFF;local bs={};local pv=sd;local ix=0;" +
             "for m in s:gmatch(\"[^,]+\") do ix=ix+1;" +
-            "local e=tonumber(m);local e1=bit32.bxor(e,rk);" +
+            "local e=0;for _bi=1,#m do e=e*" + NUM_ALPHA.length + "+_sbM[m:sub(_bi,_bi)] end;local e1=bit32.bxor(e,rk);" +
             "local ks=bit32.band(bit32.bxor(bit32.bxor(sd,ix*PR),pv),CM);" +
             "local b=bit32.band(bit32.bxor(e1,ks),CM)-OF;if b<0 then b=b+256 end;" +
             "bs[ix]=b;pv=e1 end;" +
@@ -2612,6 +2618,14 @@ end</textarea>
             "cp=bit32.bor(bit32.lshift(bit32.band(c,0x1F),6),bit32.band(c2,0x3F)) else cp=c end;" +
             "out[#out+1]=utf8 and utf8.char and utf8.char(cp) or string.char(cp) end;" +
             "return table.concat(out) end;";
+          // Compile-and-run helper, shared by every spilled function's eager
+          // register AND its lazy-loader thunk. Previously this pattern (LSV
+          // resolve + setfenv + call) was written out inline in BOTH places for
+          // every one of the spilled functions -- pure duplication with zero
+          // protection value, since it's the exact same 3 lines every time.
+          const MAT = "_" + Math.random().toString(36).slice(2, 7);
+          spillPrelude += "local function " + MAT + "(s) local f=" + LSV + " and " + LSV + "(s);" +
+            "if setfenv and f then pcall(setfenv,f," + GV + ") end;return f and f() end;";
           for (const f of spilledFns) {
             // Run each island under a shared _ENV: reads/writes of top-level names
             // (OOP tables, upvalues) resolve through __LRP_BRIDGE, with real globals
@@ -2661,11 +2675,16 @@ end</textarea>
               const e2=e ^ R;
               enc.push(e2); prev=e;
             }
-            const numStr = enc.join(",");
-            let chunk = "do local _s=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
-              "local _f=" + LSV + " and " + LSV + "(_s);" +
-              "if setfenv and _f then pcall(setfenv,_f," + GV + ") end;" +
-              "local __rf=_f and _f();" +
+            const numStr = packNums(enc);
+            // SRC holds the raw encoded-source string ONCE as a Lua local. Both
+            // the eager register below and the lazy-loader closure reference this
+            // same local (closures capture it as an upvalue) instead of each
+            // re-embedding the full numStr literal -- previously numStr (which
+            // scales with that function's actual source size) was written out
+            // TWICE per spilled function, so this alone halves the spill zone.
+            const SRC = "_" + Math.random().toString(36).slice(2, 7);
+            let chunk = "do local " + SRC + "=\"" + numStr + "\";" +
+              "local __rf=" + MAT + "(" + DEC + "(" + SRC + "," + seed + "," + R + "));" +
               "local __gg=(getgenv and getgenv());if __gg then __gg[" + JSON.stringify(f.sym) + "]=__rf end;" +
               "_G[" + JSON.stringify(f.sym) + "]=__rf;" +
               // Mirror into the shared bridge under BOTH the spill symbol AND, when
@@ -2676,16 +2695,14 @@ end</textarea>
                         // always also register the base name (after last '.' or ':')
                         "_G2.__LRP_BRIDGE[" + JSON.stringify(f.name.split(/[.:]/).pop()) + "]=__rf;") : "") +
               "end;" +
-              "if getfenv then local __fe=getfenv();if __fe then __fe[" + JSON.stringify(f.sym) + "]=__rf end end end;";
-            // LAZY LOADER: also expose a thunk that (re)builds this island's closure
-            // on demand, so a call site that fires BEFORE the eager registration (e.g.
-            // a top-level hookfunction/pcall callback at line 1) can still materialize it.
-            chunk += "do local _GL=(getgenv and getgenv()) or _G;_GL.__LRP_LOADERS=_GL.__LRP_LOADERS or {};" +
-              "_GL.__LRP_LOADERS[" + JSON.stringify(f.sym) + "]=function() " +
-              "local _s2=" + DEC + "(\"" + numStr + "\"," + seed + "," + R + ");" +
-              "local _f2=" + LSV + " and " + LSV + "(_s2);" +
-              "if setfenv and _f2 then pcall(setfenv,_f2," + GV + ") end;" +
-              "return _f2 and _f2() end end;";
+              "if getfenv then local __fe=getfenv();if __fe then __fe[" + JSON.stringify(f.sym) + "]=__rf end end;" +
+              // LAZY LOADER: also expose a thunk that (re)builds this island's closure
+              // on demand, so a call site that fires BEFORE the eager registration
+              // (e.g. a top-level hookfunction/pcall callback at line 1) can still
+              // materialize it. Reuses SRC via closure capture -- no duplicate text.
+              "local _GL=(getgenv and getgenv()) or _G;_GL.__LRP_LOADERS=_GL.__LRP_LOADERS or {};" +
+              "_GL.__LRP_LOADERS[" + JSON.stringify(f.sym) + "]=function() return " + MAT + "(" + DEC + "(" + SRC + "," + seed + "," + R + ")) end;" +
+              "end;";
             spillPrelude += chunk;
           }
         }
