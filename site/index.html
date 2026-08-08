@@ -1887,14 +1887,16 @@ end</textarea>
             // Spill any function-valued field to a native Lua closure so it works
             // as a real metamethod / callback when this table reaches a native API.
             const fieldVal = (v) => {
-              if (v && (v.type === "FunctionDeclaration" || v.type === "FunctionExpression") && !v.identifier) {
-                const src = nodeSource(v);
-                if (src) {
-                  const gsym = '__lrp_spill_' + (__spillId++);
-                  spilledFns.push({ sym: gsym, src: 'return ' + src, reason: 'table-field-fn' });
-                  emit(OP.GETGLOBAL, encodeString(gsym));
-                  return;
-                }
+              // v27: virtualize function-valued fields as real VM closures instead of
+              // always spilling. compileExpr routes anonymous functions to
+              // compileFunctionExpr, which snapshots + spills on throw -- so a field
+              // that genuinely can't compile still degrades gracefully to a spill,
+              // but the common case (a normal callback/method) now virtualizes.
+              if (v && v.type === "FunctionExpression" && !v.identifier) {
+                compileFunctionExpr(v); return;
+              }
+              if (v && v.type === "FunctionDeclaration" && !v.identifier) {
+                compileFunctionExpr(v); return;
               }
               compileExpr(v);
             };
