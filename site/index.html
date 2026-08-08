@@ -1432,6 +1432,48 @@ end</textarea>
               CRE.lastIndex=0;
             }
           })();
+
+          // ---- INLINE-IF EXPRESSION -> IIFE (v23, pre-parse) ----
+          // luaparse@0.3.1 (Lua 5.1) cannot parse Luau inline `if c then a else b`
+          // in expression position -> whole-function/whole-script parse failure.
+          // Rewrite to a self-calling function BEFORE parsing. Tokenizer-aware:
+          // skips strings/long-strings/comments; only fires in expression position.
+          (function(){
+            function __sk(s,i){ const c=s[i];
+              if(c==='-'&&s[i+1]==='-'){ if(s[i+2]==='['){ const m=/^\[(=*)\[/.exec(s.slice(i+2)); if(m){ const cl=']'+m[1]+']'; const q=s.indexOf(cl,i+2+m[0].length); return q<0?s.length:q+cl.length; } } const q=s.indexOf('\n',i); return q<0?s.length:q; }
+              if(c==='['){ const m=/^\[(=*)\[/.exec(s.slice(i)); if(m){ const cl=']'+m[1]+']'; const q=s.indexOf(cl,i+m[0].length); return q<0?s.length:q+cl.length; } }
+              if(c==='"'||c==="'"){ let j=i+1; while(j<s.length&&s[j]!==c){ if(s[j]==='\\')j++; j++; } return j+1; }
+              return -1; }
+            function __cap(s,start){ let i=start+2,depth=0,segStart=i; const branches=[]; let curCond=null,mode='cond',endIdx=-1;
+              function rw(k){ let j=k; while(j<s.length&&/[A-Za-z0-9_]/.test(s[j]))j++; return s.slice(k,j); }
+              while(i<s.length){ const sk=__sk(s,i); if(sk>=0){ i=sk; continue; } const c=s[i];
+                if(c==='('||c==='['||c==='{'){ depth++; i++; continue; }
+                if(c===')'||c===']'||c==='}'){ if(depth===0){ endIdx=i; break; } depth--; i++; continue; }
+                if(depth===0&&/[A-Za-z_]/.test(c)){ const w=rw(i);
+                  if(w==='then'){ curCond=[segStart,i]; segStart=i+4; mode='val'; i+=4; continue; }
+                  if(w==='elseif'){ branches.push({cond:curCond,val:[segStart,i]}); segStart=i+6; mode='cond'; i+=6; continue; }
+                  if(w==='else'){ branches.push({cond:curCond,val:[segStart,i]}); segStart=i+4; mode='elseval'; i+=4; continue; }
+                  if(mode==='elseval'&&/^(end|until|do|then)$/.test(w)){ endIdx=i; break; }
+                  i+=w.length; continue; }
+                if(depth===0&&(c===','||c===';'||c==='\n')){ if(mode==='elseval'){ endIdx=i; break; } }
+                i++; }
+              if(endIdx<0)endIdx=s.length; if(!branches.length)return null;
+              const elseVal=[segStart,endIdx]; const seg=(r)=>s.slice(r[0],r[1]).trim();
+              let body='if '+seg(branches[0].cond)+' then return ('+seg(branches[0].val)+')';
+              for(let k=1;k<branches.length;k++) body+=' elseif '+seg(branches[k].cond)+' then return ('+seg(branches[k].val)+')';
+              body+=' else return ('+seg(elseVal)+') end';
+              return { end:endIdx, rebuilt:'(function() '+body+' end)()' }; }
+            function __one(s){ let i=0,prev='';
+              while(i<s.length){ const sk=__sk(s,i); if(sk>=0){ i=sk; prev=')'; continue; } const c=s[i];
+                if(/\s/.test(c)){ i++; continue; }
+                if(/[A-Za-z_]/.test(c)){ let j=i; while(j<s.length&&/[A-Za-z0-9_]/.test(s[j]))j++; const w=s.slice(i,j);
+                  if(w==='if'&&(/[=([{,]/.test(prev)||/^(return|and|or|not|then|do|else|elseif|while|until)$/.test(prev))){
+                    const sp=__cap(s,i); if(sp&&sp.rebuilt) return s.slice(0,i)+sp.rebuilt+s.slice(sp.end); }
+                  i=j; prev=w; continue; }
+                prev=c; i++; }
+              return null; }
+            let g=0; while(g++<5000){ const r=__one(o); if(r===null)break; o=r; }
+          })();
           return o;
         }
         var __prepped = __lprep(source);
