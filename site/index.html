@@ -2308,24 +2308,50 @@ end</textarea>
             patch(jz, here());
             { const __ln = loopStack.pop(); for (const b of __ln.breaks) patch(b, here()); }
           } else if (node.type === "ForGenericStatement") {
-            const iterCall = node.iterators[0];
-            const tExpr = iterCall.arguments[0];
-            const tSlot = nextSlot++;
-            compileExpr(tExpr); emit(OP.STORE, tSlot);
-            const idxSlot = nextSlot++;
-            emitNumber(1); emit(OP.STORE, idxSlot);
-            const lenSlot = nextSlot++;
-            emit(OP.LOAD, tSlot); emit(OP.TLEN); emit(OP.STORE, lenSlot);
-            const keyVar = node.variables[0] ? slotFor(node.variables[0].name) : nextSlot++;
-            const valVar = node.variables[1] ? slotFor(node.variables[1].name) : nextSlot++;
+            // TRUE Lua generic-for protocol (v21): works for pairs, ipairs, next,
+            // and any custom iterator (f,s,ctrl), not just pairs(t)-shaped calls.
+            const iters = node.iterators || [];
+            // Evaluate iterator explist into f, s, ctrl slots. Adjust to 3 values:
+            // if the first (and only) expr is a call, its multiple returns supply
+            // f,s,ctrl; otherwise evaluate each expr positionally (nil-filled).
+            const fSlot = nextSlot++, sSlot = nextSlot++, cSlot = nextSlot++;
+            if (iters.length === 1 && iters[0] && iters[0].type === "CallExpression") {
+              // f,s,ctrl = <call>()  -> pack returns, spread into 3 slots
+              compileCall(iters[0]);                 // pushes result set
+              const tmp = nextSlot++; emit(OP.STORE, tmp);
+              if (iters[0].__pcallPacked) {
+                emit(OP.LOAD, tmp); emitNumber(1); emit(OP.GETTABLE); emit(OP.STORE, fSlot);
+                emit(OP.LOAD, tmp); emitNumber(2); emit(OP.GETTABLE); emit(OP.STORE, sSlot);
+                emit(OP.LOAD, tmp); emitNumber(3); emit(OP.GETTABLE); emit(OP.STORE, cSlot);
+              } else {
+                // CALLR pushes a packed table {r1,r2,...,n}; spread first 3.
+                emit(OP.LOAD, tmp); emitNumber(1); emit(OP.GETTABLE); emit(OP.STORE, fSlot);
+                emit(OP.LOAD, tmp); emitNumber(2); emit(OP.GETTABLE); emit(OP.STORE, sSlot);
+                emit(OP.LOAD, tmp); emitNumber(3); emit(OP.GETTABLE); emit(OP.STORE, cSlot);
+              }
+            } else {
+              // positional: e.g. 'in next, {..}'  -> f=next, s={..}, ctrl=iters[2] or nil
+              if (iters[0]) { compileExpr(iters[0]); emit(OP.STORE, fSlot); } else { emitNumber(0); emit(OP.STORE, fSlot); }
+              if (iters[1]) { compileExpr(iters[1]); emit(OP.STORE, sSlot); } else { emitNumber(0); emit(OP.STORE, sSlot); }
+              if (iters[2]) { compileExpr(iters[2]); emit(OP.STORE, cSlot); } else { emitNumber(0); emit(OP.STORE, cSlot); }
+            }
+            const vars = node.variables.map((v) => slotFor(v.name));
             const top = here();
-            emit(OP.LOAD, idxSlot); emit(OP.LOAD, lenSlot); emit(OP.LE);
+            // call f(s, ctrl) -> packed results
+            emit(OP.LOAD, sSlot); emit(OP.LOAD, cSlot); emit(OP.LOAD, fSlot);
+            emit(OP.CALLR, 2);                        // fn=f, args=(s,ctrl) -> pushes packed {..,n}
+            const resTmp = nextSlot++; emit(OP.STORE, resTmp);
+            // assign results to loop vars (positional, nil-adjusted)
+            for (let vi = 0; vi < vars.length; vi++) {
+              emit(OP.LOAD, resTmp); emitNumber(vi + 1); emit(OP.GETTABLE); emit(OP.STORE, vars[vi]);
+            }
+            // if first var == nil -> exit
+            emit(OP.LOAD, vars[0]); emitNumber(0); emit(OP.EQ);
             const jz = emit(OP.JZ, 0);
-            emit(OP.LOAD, idxSlot); emit(OP.STORE, keyVar);
-            emit(OP.LOAD, tSlot); emit(OP.LOAD, idxSlot); emit(OP.GETTABLE); emit(OP.STORE, valVar);
+            // ctrl = first var (advance the iterator control)
+            emit(OP.LOAD, vars[0]); emit(OP.STORE, cSlot);
             loopStack.push({ breaks: [] });
             compileBlock(node.body);
-            emit(OP.LOAD, idxSlot); emitNumber(1); emit(OP.ADD); emit(OP.STORE, idxSlot);
             emit(OP.JMP, top);
             patch(jz, here());
             { const __lg = loopStack.pop(); for (const b of __lg.breaks) patch(b, here()); }
