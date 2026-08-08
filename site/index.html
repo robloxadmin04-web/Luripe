@@ -1891,6 +1891,30 @@ end</textarea>
           } else if (node.type === "FunctionDeclaration" && !node.identifier) {
             // Anonymous function / callback -> closure (captures outer locals)
             compileFunctionExpr(node);
+          } else if (node.type === "IfExpression" || node.type === "IfExpr") {
+            // Luau inline if-expression:  (if c then A elseif d then B else C)
+            // Lower to value via jumps, mirroring the IfStatement pattern so stack
+            // discipline matches: eval cond; JZ next; eval value; JMP end; ...; else.
+            // luaparse Luau builds vary on key names -> normalize defensively.
+            const cond0 = node.condition;
+            const then0 = node.consequent || node.thenExpr || node.body || node.then;
+            const elifs = node.elseifClauses || node.elseIfClauses || node.clauses || [];
+            const else0 = node.alternate || node.elseExpr || node.els || node["else"];
+            const branches = [{ c: cond0, v: then0 }];
+            for (const e of elifs) {
+              if (!e) continue;
+              branches.push({ c: e.condition, v: (e.consequent || e.thenExpr || e.body || e.then) });
+            }
+            const endJumps = [];
+            for (const br of branches) {
+              compileExpr(br.c);
+              const jz = emit(OP.JZ, 0);
+              compileExpr(br.v);
+              endJumps.push(emit(OP.JMP, 0));
+              patch(jz, here());
+            }
+            if (else0) compileExpr(else0); else emitNumber(0); // Luau requires else; guard anyway
+            for (const j of endJumps) patch(j, here());
           } else throw new Error("hindi sinusuportahan ang expression: " + node.type);
         }
 
@@ -1901,10 +1925,8 @@ end</textarea>
             const src = nodeSource(node);
             if (!src) throw err; // cannot recover without original text
             rollback(__snap);
-            // Bind the anonymous function via a global key, then PUSH it so the
-            // surrounding expression (assignment/call/table) uses it as a value.
             const gsym = '__lrp_spill_' + (__spillId++);
-            spilledFns.push({ sym: gsym, src: src });
+            spilledFns.push({ sym: gsym, src: src, reason: (err && err.message) || 'unknown' });
             emit(OP.GETGLOBAL, encodeString(gsym));
             return;
           }
