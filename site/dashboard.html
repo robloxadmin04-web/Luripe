@@ -254,6 +254,7 @@ var AST=(function(){
           walk(node.body,s5); return;
         }
         case "Identifier":
+          if(node.name==="self") return; // implicit colon-method param â€” never mangle
           if(scope[node.name]!==undefined) node.name=scope[node.name];
           return;
         case "MemberExpression":
