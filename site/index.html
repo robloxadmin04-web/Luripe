@@ -18,36 +18,52 @@
           if (!window.luaparse || window.luaparse.__lrpConstPatched) return;
           var LP = window.luaparse;
           var _origParse = LP.parse;
-          // Neutralise the const check: luaparse routes fatal parse issues through
-          // a raise()/error path. We wrap parse() so an "Assignment to constant"
-          // failure is swallowed and retried with a Proxy that no-ops the throw.
+          // The retry parses the SAME source and throws again. The reliable fix is
+          // to make the const error non-fatal at the SOURCE of the throw. luaparse
+          // raises every fatal via a function that builds an Error whose message
+          // includes the text; we intercept Error construction DURING parse and
+          // turn the const-assignment error into a no-op so the scope pass cannot
+          // abort. Everything else still throws normally.
           LP.parse = function(src, opts){
+            var _E = window.Error;
+            var _armed = true;
+            function GuardError(msg){
+              // Only neutralise the const-assignment class; re-raise everything else.
+              if (_armed && msg != null && /constant variable/i.test(String(msg))) {
+                var sentinel = new _E(String(msg));
+                sentinel.__lrpConstIgnored = true;
+                return sentinel;
+              }
+              return new _E(msg);
+            }
+            GuardError.prototype = _E.prototype;
             try {
-              return _origParse.call(LP, src, opts);
-            } catch (e) {
+              // swap Error while parsing so luaparse's raise() builds our guarded one
+              window.Error = GuardError;
+              try {
+                return _origParse.call(LP, src, opts);
+              } catch (inner) {
+                if (inner && inner.__lrpConstIgnored) {
+                  // luaparse aborted on const anyway (threw the sentinel). Fall back
+                  // to the source neutraliser below with Error restored.
+                  window.Error = _E; _armed = false;
+                  var fixed = src.replace(/\blocal\s+(function\s+[A-Za-z_]\w*\s*\()/g, "$1");
+                  return _origParse.call(LP, fixed, opts);
+                }
+                throw inner;
+              }
+            } finally {
+              window.Error = _E;
+            }
+          };
+          // keep the legacy wrapper name harmless
+          if (false) { var _origParse2 = _origParse; (function(src, opts){
+            try { return _origParse2.call(LP, src, opts); }
+            catch (e) {
               var msg = (e && e.message) ? e.message : String(e);
               if (/constant variable/i.test(msg)) {
-                // Retry: temporarily replace the global Error thrown for const so
-                // the parser's scope pass cannot abort. We do this by patching the
-                // parser's error emitter if exposed, else fall back to a source-
-                // level neutraliser (declare every reassigned local up front).
-                if (LP.SyntaxError) {
-                  var _SE = LP.SyntaxError;
-                  try {
-                    // swallow ONLY the const error class during this retry
-                    var guarded = function(m){ if (m && /constant variable/i.test(m)) { var x=new Error(m); x.__lrpConst=true; return x; } return new _SE(m); };
-                    // best-effort: some builds call this.error(); patch prototype
-                    return _origParse.call(LP, src, opts);
-                  } catch (e2) {
-                    if (e2 && e2.__lrpConst) { /* fall through to source fix */ }
-                  }
-                }
-                // Source-level neutraliser: strip 'local' from any 'local function'
-                // whose name is reassigned, turning it into a global-ish function
-                // decl that luaparse never marks const. Semantics preserved for
-                // executor scripts (top-level locals ~ globals under our _ENV).
                 var fixed = src.replace(/\blocal\s+(function\s+[A-Za-z_]\w*\s*\()/g, "$1");
-                return _origParse.call(LP, fixed, opts);
+                return _origParse2.call(LP, fixed, opts);
               }
               throw e;
             }
